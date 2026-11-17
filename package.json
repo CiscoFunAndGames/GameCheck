@@ -1,0 +1,10 @@
+{
+  "name": "pc-game-checker",
+  "version": "1.0.0",
+  "description": "PC Hardware Detector, 'Can I Run It?' Checker, and Optimal Game Configuration Advisor",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "check": "node src/cli.js"
+  }
+}

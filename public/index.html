@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RigCheck AI — PC Component & Optimal Game Configurator</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="top-bar">
+      <div class="brand">
+        <div class="brand-logo">⚡</div>
+        <div>
+          <h1>RigCheck <span class="accent">Optimizer</span></h1>
+          <p class="subtitle">Real-time PC Hardware Scanner • "Can I Run It?" • Optimal Graphics Advisor</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="btn-toggle-sim" class="btn btn-secondary">🔧 Simulate Upgrade / Edit Specs</button>
+        <button id="btn-custom-game" class="btn btn-secondary">➕ Check Custom Game</button>
+        <button id="btn-rescan" class="btn btn-primary">🔄 Re-Scan My PC</button>
+      </div>
+    </header>
+
+    <!-- Detected Hardware Cards -->
+    <section class="hardware-section">
+      <div class="section-header">
+        <h2>🖥️ Your Detected PC Components <span id="sim-badge" class="badge badge-warn hidden">SIMULATED OVERRIDE ACTIVE</span></h2>
+        <span id="os-label" class="os-pill">Detecting OS...</span>
+      </div>
+      <div class="hardware-grid" id="hardware-grid">
+        <div class="hw-card">
+          <div class="hw-label">PROCESSOR (CPU)</div>
+          <div class="hw-value" id="hw-cpu-name">Scanning...</div>
+          <div class="hw-meta" id="hw-cpu-meta">--</div>
+          <div class="score-bar"><div class="score-fill" id="hw-cpu-bar" style="width:0%"></div></div>
+        </div>
+        <div class="hw-card">
+          <div class="hw-label">GRAPHICS CARD (GPU)</div>
+          <div class="hw-value" id="hw-gpu-name">Scanning...</div>
+          <div class="hw-meta" id="hw-gpu-meta">--</div>
+          <div class="score-bar"><div class="score-fill" id="hw-gpu-bar" style="width:0%"></div></div>
+        </div>
+        <div class="hw-card">
+          <div class="hw-label">SYSTEM MEMORY (RAM)</div>
+          <div class="hw-value" id="hw-ram-name">Scanning...</div>
+          <div class="hw-meta" id="hw-ram-meta">--</div>
+          <div class="score-bar"><div class="score-fill" id="hw-ram-bar" style="width:0%"></div></div>
+        </div>
+        <div class="hw-card">
+          <div class="hw-label">PRIMARY STORAGE</div>
+          <div class="hw-value" id="hw-disk-name">Scanning...</div>
+          <div class="hw-meta" id="hw-disk-meta">--</div>
+          <div class="score-bar"><div class="score-fill" id="hw-disk-bar" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <!-- Optional Hardware Upgrade Simulator Drawer -->
+      <div id="simulator-drawer" class="drawer hidden">
+        <h3>🔧 Hardware Upgrade Simulator ("What-If" Mode)</h3>
+        <p class="drawer-desc">Test how your games would run if you swapped your GPU, CPU, or RAM:</p>
+        <div class="form-row">
+          <label>
+            CPU Model
+            <input type="text" id="sim-cpu" placeholder="e.g. AMD Ryzen 7 7800X3D or Intel i5-13600K" />
+          </label>
+          <label>
+            GPU Model
+            <input type="text" id="sim-gpu" placeholder="e.g. RTX 4070 Super or Radeon RX 7800 XT" />
+          </label>
+          <label>
+            GPU VRAM (GB)
+            <input type="number" id="sim-vram" min="2" max="32" placeholder="8" />
+          </label>
+          <label>
+            System RAM (GB)
+            <input type="number" id="sim-ram" min="4" max="128" placeholder="48" />
+          </label>
+        </div>
+        <div class="drawer-actions">
+          <button id="btn-apply-sim" class="btn btn-primary">Apply Simulated Hardware</button>
+          <button id="btn-reset-sim" class="btn btn-secondary">Reset to My Real PC</button>
+        </div>
+      </div>
+
+      <!-- Optional Custom Game Drawer -->
+      <div id="custom-game-drawer" class="drawer hidden">
+        <h3>➕ Check Any Custom Game Requirements</h3>
+        <p class="drawer-desc">Paste or type the Minimum and Recommended specs of any game:</p>
+        <div class="form-row">
+          <label>Game Title <input type="text" id="cg-title" value="GTA VI (Estimated PC)" /></label>
+          <label>Storage Needed (GB) <input type="number" id="cg-storage" value="150" /></label>
+          <label>Min CPU <input type="text" id="cg-min-cpu" value="AMD Ryzen 5 3600" /></label>
+          <label>Min GPU <input type="text" id="cg-min-gpu" value="RTX 2060" /></label>
+          <label>Min VRAM (GB) <input type="number" id="cg-min-vram" value="6" /></label>
+          <label>Rec CPU <input type="text" id="cg-rec-cpu" value="AMD Ryzen 7 5800X" /></label>
+          <label>Rec GPU <input type="text" id="cg-rec-gpu" value="RTX 4070" /></label>
+          <label>Rec VRAM (GB) <input type="number" id="cg-rec-vram" value="12" /></label>
+        </div>
+        <div class="drawer-actions">
+          <button id="btn-run-custom-game" class="btn btn-primary">Analyze Custom Game</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Split View: Game List on Left, Detailed Analysis & Optimal Config on Right -->
+    <main class="main-split">
+      <aside class="game-sidebar">
+        <div class="sidebar-header">
+          <h3>🎮 Select a Game</h3>
+          <input type="search" id="game-search" placeholder="Search games (e.g. Cyberpunk, Wukong, CS2)..." />
+        </div>
+        <div id="game-list" class="game-list"></div>
+      </aside>
+
+      <section class="analysis-panel" id="analysis-panel">
+        <div class="empty-state">Select a game on the left to inspect compatibility & optimal settings.</div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
