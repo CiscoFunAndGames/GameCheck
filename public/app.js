@@ -1,7 +1,10 @@
-let allGames = [];
+let allCatalogGames = [];
+let installedGames = [];
 let currentSpecs = null;
 let selectedGameId = 'cyberpunk-2077';
+let activeSourceTab = 'all'; // 'all' | 'installed'
 let customHardwareOverride = null;
+let lastExportedConfigs = null;
 
 function tierBadge(tier) {
   switch (tier) {
@@ -14,6 +17,18 @@ function tierBadge(tier) {
     default:
       return { text: 'Below Minimum', cls: 'badge-fail' };
   }
+}
+
+function downloadTextFile(filename, content, mimeType = 'text/plain;charset=utf-8') {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function renderSpecsBanner(specs) {
@@ -41,22 +56,77 @@ function renderSpecsBanner(specs) {
   document.getElementById('hw-disk-bar').style.width = `${diskPct}%`;
 }
 
-function renderGameList(filterText = '') {
+function populateGenreDropdown() {
+  const select = document.getElementById('game-genre-filter');
+  const currentVal = select.value;
+  const genreSet = new Set();
+
+  [...allCatalogGames, ...installedGames].forEach((g) => {
+    if (g.genre) genreSet.add(g.genre);
+  });
+
+  const sortedGenres = Array.from(genreSet).sort();
+  select.innerHTML = `<option value="">All Genres (${sortedGenres.length})</option>` +
+    sortedGenres.map((genre) => `<option value="${genre}">${genre}</option>`).join('');
+
+  if (sortedGenres.includes(currentVal)) {
+    select.value = currentVal;
+  }
+}
+
+function renderGameList() {
   const container = document.getElementById('game-list');
-  const q = filterText.trim().toLowerCase();
-  const filtered = allGames.filter(
-    (g) => g.title.toLowerCase().includes(q) || g.genre.toLowerCase().includes(q)
-  );
+  const q = (document.getElementById('game-search').value || '').trim().toLowerCase();
+  const genreFilter = (document.getElementById('game-genre-filter').value || '').trim().toLowerCase();
+  const tierFilter = (document.getElementById('game-tier-filter').value || '').trim().toUpperCase();
+
+  const sourceList = activeSourceTab === 'installed' ? installedGames : allCatalogGames;
+
+  const filtered = sourceList.filter((g) => {
+    if (q) {
+      const hay = `${g.title} ${g.genre} ${g.engine || ''} ${g.launcher || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    if (genreFilter && (g.genre || '').toLowerCase() !== genreFilter) {
+      return false;
+    }
+    if (tierFilter) {
+      const t = g.analysis?.overallTier || '';
+      if (tierFilter === 'RECOMMENDED') {
+        if (!g.analysis?.canRunRecommended) return false;
+      } else if (tierFilter === 'PLAYABLE') {
+        if (!g.analysis?.canRunMinimum) return false;
+      } else if (t !== tierFilter) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<div class="empty-state">No games match the current filter.</div>`;
+    return;
+  }
 
   container.innerHTML = filtered
     .map((g) => {
       const b = tierBadge(g.analysis.overallTier);
       const isActive = g.id === selectedGameId ? 'active' : '';
+      const installedBadge = g.installed
+        ? `<span class="installed-pill" title="Installed on ${g.drive || 'PC'} via ${g.launcher || 'Local'}">💿 ${g.drive || 'Installed'}</span>`
+        : '';
+      const subMeta = g.installed && g.launcher
+        ? `${g.launcher} (${g.drive}) • ${g.sizeOnDiskGB || g.storageGB} GB`
+        : `${g.genre} • ${g.storageGB} GB`;
+
       return `
         <div class="game-item ${isActive}" data-id="${g.id}">
           <div>
-            <div class="game-item-title">${g.title}</div>
-            <div class="game-item-meta">${g.genre} • ${g.storageGB} GB</div>
+            <div class="game-item-title">
+              <span>${g.title}</span>
+              ${installedBadge}
+            </div>
+            <div class="game-item-meta">${subMeta}</div>
           </div>
           <span class="badge ${b.cls}">${b.text}</span>
         </div>
@@ -67,17 +137,22 @@ function renderGameList(filterText = '') {
   container.querySelectorAll('.game-item').forEach((el) => {
     el.addEventListener('click', () => {
       selectedGameId = el.getAttribute('data-id');
-      renderGameList(document.getElementById('game-search').value);
+      renderGameList();
       loadGameAnalysis(selectedGameId);
     });
   });
 }
 
-function renderAnalysisDetail(game, analysis) {
+function renderAnalysisDetail(game, analysis, perSettingImpact = [], exportedConfigs = null) {
   const panel = document.getElementById('analysis-panel');
   const b = tierBadge(analysis.overallTier);
   const opt = analysis.optimalConfig;
   const c = analysis.components;
+  const impactRows = Array.isArray(perSettingImpact) && perSettingImpact.length > 0
+    ? perSettingImpact
+    : (analysis.perSettingImpact || []);
+
+  lastExportedConfigs = exportedConfigs || analysis.exportedConfigs || null;
 
   const compRows = [
     { label: 'Processor (CPU)', data: c.cpu, min: c.cpu.minRequired, rec: c.cpu.recRequired },
@@ -87,13 +162,27 @@ function renderAnalysisDetail(game, analysis) {
     { label: 'Disk Storage', data: c.storage, min: c.storage.required, rec: c.storage.required }
   ];
 
+  const installedBanner = game.installed
+    ? `<span class="installed-pill" style="font-size:0.75rem;padding:3px 9px;">💿 Installed on ${game.drive || 'PC'} (${game.launcher || 'Local'} • ${game.sizeOnDiskGB || game.storageGB} GB)</span>`
+    : '';
+
   panel.innerHTML = `
     <div class="game-hero">
       <div>
-        <h2>${game.title}</h2>
-        <div class="game-hero-meta">${game.genre} • Engine: ${game.engine} • Release: ${game.releaseYear}</div>
+        <h2>
+          <span>${game.title}</span>
+          ${installedBanner}
+        </h2>
+        <div class="game-hero-meta">${game.genre} • Engine: ${game.engine || 'Standard'} • Release: ${game.releaseYear || 2024}</div>
       </div>
-      <span class="badge ${b.cls}" style="font-size:0.88rem;padding:6px 14px;">${b.text}</span>
+      <div class="hero-right">
+        <span class="badge ${b.cls}" style="font-size:0.88rem;padding:6px 14px;">${b.text}</span>
+        <div class="export-bar">
+          <button id="btn-download-ini" class="btn-export" type="button" title="Download ready-to-use .INI graphics config">⬇️ Download Optimal .INI</button>
+          <button id="btn-download-json" class="btn-export" type="button" title="Download full .JSON hardware & settings profile">📄 Download .JSON Profile</button>
+          <button id="btn-download-md" class="btn-export" type="button" title="Download Markdown tuning checklist">📝 Download .MD Guide</button>
+        </div>
+      </div>
     </div>
 
     <div class="bottleneck-banner">
@@ -151,6 +240,47 @@ function renderAnalysisDetail(game, analysis) {
       </div>
     </div>
 
+    ${impactRows.length > 0 ? `
+      <div class="panel-subtitle">📊 Per-Setting FPS Gain &amp; VRAM Impact Breakdown</div>
+      <table class="impact-table">
+        <thead>
+          <tr>
+            <th>Setting</th>
+            <th>Optimal Value</th>
+            <th>Est. FPS Gain vs Ultra</th>
+            <th>VRAM Impact</th>
+            <th>Visual Cost</th>
+            <th>Hardware Tuning Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${impactRows
+            .map((item) => {
+              const barPct = Math.min(100, Math.round((item.fpsGainPercent / 45) * 100));
+              const fpsLabel = item.fpsGainPercent > 0 ? `+${item.fpsGainPercent}% FPS` : '0% (Neutral)';
+              return `
+                <tr>
+                  <td><strong>${item.setting}</strong></td>
+                  <td><span style="color:var(--accent);font-weight:700;">${item.recommendedValue}</span></td>
+                  <td class="impact-bar-cell">
+                    <div class="impact-bar-header">
+                      <span>${fpsLabel}</span>
+                    </div>
+                    <div class="impact-bar-track">
+                      <div class="impact-bar-fill" style="width:${barPct}%"></div>
+                    </div>
+                  </td>
+                  <td><span class="vram-chip">~${item.vramImpactMB} MB</span></td>
+                  <td><span class="visual-cost-chip">${item.visualCost}</span></td>
+                  <td class="impact-note">${item.note}</td>
+                </tr>
+              `;
+            })
+            .join('')}
+        </tbody>
+      </table>
+    ` : ''}
+
     <div class="panel-subtitle">🔍 Component-by-Component Check</div>
     <table class="comp-table">
       <thead>
@@ -180,11 +310,43 @@ function renderAnalysisDetail(game, analysis) {
       </tbody>
     </table>
 
-    <div class="panel-subtitle">🎯 Engine & Game-Specific Optimization Tips</div>
+    <div class="panel-subtitle">🎯 Engine &amp; Game-Specific Optimization Tips</div>
     <ul class="tips-list">
       ${opt.tuningTips.map((tip) => `<li>✨ ${tip}</li>`).join('')}
     </ul>
   `;
+
+  const btnIni = document.getElementById('btn-download-ini');
+  const btnJson = document.getElementById('btn-download-json');
+  const btnMd = document.getElementById('btn-download-md');
+
+  if (btnIni && lastExportedConfigs) {
+    btnIni.addEventListener('click', () => {
+      downloadTextFile(
+        `${lastExportedConfigs.filenameBase || 'optimal-settings'}.ini`,
+        lastExportedConfigs.iniContent,
+        'text/plain;charset=utf-8'
+      );
+    });
+  }
+  if (btnJson && lastExportedConfigs) {
+    btnJson.addEventListener('click', () => {
+      downloadTextFile(
+        `${lastExportedConfigs.filenameBase || 'optimal-settings'}.json`,
+        lastExportedConfigs.jsonContent,
+        'application/json;charset=utf-8'
+      );
+    });
+  }
+  if (btnMd && lastExportedConfigs) {
+    btnMd.addEventListener('click', () => {
+      downloadTextFile(
+        `${lastExportedConfigs.filenameBase || 'optimal-settings'}.md`,
+        lastExportedConfigs.markdownGuide,
+        'text/markdown;charset=utf-8'
+      );
+    });
+  }
 }
 
 async function loadGameAnalysis(gameId, customGamePayload = null) {
@@ -200,7 +362,7 @@ async function loadGameAnalysis(gameId, customGamePayload = null) {
   const data = await res.json();
   if (data.specs) renderSpecsBanner(data.specs);
   if (data.game && data.analysis) {
-    renderAnalysisDetail(data.game, data.analysis);
+    renderAnalysisDetail(data.game, data.analysis, data.perSettingImpact, data.exportedConfigs);
   }
 }
 
@@ -208,23 +370,61 @@ async function initDashboard(forceRefresh = false) {
   if (forceRefresh) {
     await fetch('/api/specs?refresh=1');
   }
-  const res = await fetch('/api/games');
-  const data = await res.json();
-  allGames = data.games;
-  renderSpecsBanner(data.specs);
+  const [gamesRes, installedRes] = await Promise.all([
+    fetch('/api/games'),
+    fetch(`/api/installed${forceRefresh ? '?refresh=1' : ''}`)
+  ]);
+  const gamesData = await gamesRes.json();
+  const installedData = await installedRes.json();
+
+  allCatalogGames = gamesData.games || [];
+  installedGames = installedData.installedGames || installedData.games || [];
+
+  document.getElementById('count-catalog').textContent = allCatalogGames.length;
+  document.getElementById('count-installed').textContent = installedGames.length;
+
+  renderSpecsBanner(gamesData.specs);
+  populateGenreDropdown();
 
   // Pre-fill simulator inputs
-  document.getElementById('sim-cpu').value = data.specs.cpu.name;
-  document.getElementById('sim-gpu').value = data.specs.gpu.name;
-  document.getElementById('sim-vram').value = data.specs.gpu.vramGB;
-  document.getElementById('sim-ram').value = data.specs.ram.totalGB;
+  document.getElementById('sim-cpu').value = gamesData.specs.cpu.name;
+  document.getElementById('sim-gpu').value = gamesData.specs.gpu.name;
+  document.getElementById('sim-vram').value = gamesData.specs.gpu.vramGB;
+  document.getElementById('sim-ram').value = gamesData.specs.ram.totalGB;
 
-  renderGameList(document.getElementById('game-search').value);
+  renderGameList();
   await loadGameAnalysis(selectedGameId);
 }
 
-document.getElementById('game-search').addEventListener('input', (e) => {
-  renderGameList(e.target.value);
+// Sidebar filter tabs ("All Catalog Games" vs "Installed on My PC")
+document.getElementById('filter-tab-all').addEventListener('click', () => {
+  activeSourceTab = 'all';
+  document.getElementById('filter-tab-all').classList.add('active');
+  document.getElementById('filter-tab-installed').classList.remove('active');
+  renderGameList();
+});
+
+document.getElementById('filter-tab-installed').addEventListener('click', () => {
+  activeSourceTab = 'installed';
+  document.getElementById('filter-tab-installed').classList.add('active');
+  document.getElementById('filter-tab-all').classList.remove('active');
+  if (installedGames.length > 0 && !installedGames.some((g) => g.id === selectedGameId)) {
+    selectedGameId = installedGames[0].id;
+    loadGameAnalysis(selectedGameId);
+  }
+  renderGameList();
+});
+
+document.getElementById('game-search').addEventListener('input', () => {
+  renderGameList();
+});
+
+document.getElementById('game-genre-filter').addEventListener('change', () => {
+  renderGameList();
+});
+
+document.getElementById('game-tier-filter').addEventListener('change', () => {
+  renderGameList();
 });
 
 document.getElementById('btn-rescan').addEventListener('click', () => {
@@ -258,6 +458,83 @@ document.getElementById('btn-reset-sim').addEventListener('click', () => {
   customHardwareOverride = null;
   document.getElementById('sim-badge').classList.add('hidden');
   initDashboard(false);
+});
+
+// Sample Steam requirements loader
+document.getElementById('btn-fill-sample-steam').addEventListener('click', () => {
+  document.getElementById('cg-title').value = 'Kingdom Come: Deliverance II';
+  document.getElementById('cg-raw-steam-specs').value = [
+    'MINIMUM:',
+    'Requires a 64-bit processor and operating system',
+    'OS: Windows 10 64-bit (or newer)',
+    'Processor: Intel Core i5-8400, AMD Ryzen 5 2600',
+    'Memory: 16 GB RAM',
+    'Graphics: NVIDIA GeForce GTX 1060 (6GB), AMD Radeon RX 580',
+    'Storage: 100 GB available space',
+    '',
+    'RECOMMENDED:',
+    'Requires a 64-bit processor and operating system',
+    'OS: Windows 10 64-bit (or newer)',
+    'Processor: Intel Core i7-13700K, AMD Ryzen 7 7800X3D',
+    'Memory: 32 GB RAM',
+    'Graphics: NVIDIA GeForce RTX 4070 (12GB), AMD Radeon RX 7800 XT',
+    'Storage: 100 GB available space (SSD required)'
+  ].join('\n');
+});
+
+// Parse Raw Steam Specs via POST /api/parse-reqs
+document.getElementById('btn-parse-steam-specs').addEventListener('click', async () => {
+  const statusEl = document.getElementById('parse-reqs-status');
+  const rawText = document.getElementById('cg-raw-steam-specs').value.trim();
+  const title = document.getElementById('cg-title').value.trim() || 'Custom Steam Game';
+
+  if (!rawText) {
+    statusEl.style.color = 'var(--amber)';
+    statusEl.textContent = 'Please paste Steam system requirements text first (or click Load Sample).';
+    return;
+  }
+
+  statusEl.style.color = 'var(--accent)';
+  statusEl.textContent = 'Parsing requirements & analyzing compatibility...';
+
+  try {
+    const res = await fetch('/api/parse-reqs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title,
+        text: rawText,
+        customHardware: customHardwareOverride
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to parse requirements');
+    }
+
+    // Populate manual fields with extracted specs so user can inspect or tweak them
+    if (data.game) {
+      document.getElementById('cg-title').value = data.game.title;
+      document.getElementById('cg-storage').value = data.game.storageGB;
+      document.getElementById('cg-min-cpu').value = data.game.minimum.cpu;
+      document.getElementById('cg-min-gpu').value = data.game.minimum.gpu;
+      document.getElementById('cg-min-vram').value = data.game.minimum.vramGB;
+      document.getElementById('cg-rec-cpu').value = data.game.recommended.cpu;
+      document.getElementById('cg-rec-gpu').value = data.game.recommended.gpu;
+      document.getElementById('cg-rec-vram').value = data.game.recommended.vramGB;
+    }
+
+    if (data.specs) renderSpecsBanner(data.specs);
+    if (data.game && data.analysis) {
+      renderAnalysisDetail(data.game, data.analysis, data.perSettingImpact, data.exportedConfigs);
+    }
+
+    statusEl.style.color = 'var(--green)';
+    statusEl.textContent = `✓ Parsed "${data.game.title}" (${data.game.minimum.gpu} min → ${data.game.recommended.gpu} rec)`;
+  } catch (err) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = `Error: ${err.message}`;
+  }
 });
 
 document.getElementById('btn-run-custom-game').addEventListener('click', async () => {

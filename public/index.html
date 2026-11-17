@@ -13,12 +13,12 @@
         <div class="brand-logo">⚡</div>
         <div>
           <h1>RigCheck <span class="accent">Optimizer</span></h1>
-          <p class="subtitle">Real-time PC Hardware Scanner • "Can I Run It?" • Optimal Graphics Advisor</p>
+          <p class="subtitle">Real-time PC Hardware Scanner • Installed Library Detector • Optimal Graphics & Config Exporter</p>
         </div>
       </div>
       <div class="header-actions">
         <button id="btn-toggle-sim" class="btn btn-secondary">🔧 Simulate Upgrade / Edit Specs</button>
-        <button id="btn-custom-game" class="btn btn-secondary">➕ Check Custom Game</button>
+        <button id="btn-custom-game" class="btn btn-secondary">➕ Check Custom / Steam Game</button>
         <button id="btn-rescan" class="btn btn-primary">🔄 Re-Scan My PC</button>
       </div>
     </header>
@@ -84,10 +84,29 @@
         </div>
       </div>
 
-      <!-- Optional Custom Game Drawer -->
+      <!-- Custom Game & Paste Raw Steam Specs Drawer -->
       <div id="custom-game-drawer" class="drawer hidden">
         <h3>➕ Check Any Custom Game Requirements</h3>
-        <p class="drawer-desc">Paste or type the Minimum and Recommended specs of any game:</p>
+        <p class="drawer-desc">Paste raw Steam / PCGamingWiki system requirements text below, or enter individual component specs manually:</p>
+
+        <div class="raw-steam-box">
+          <div class="raw-steam-header">
+            <strong>📋 Paste Raw Steam Specs</strong>
+            <button id="btn-fill-sample-steam" type="button" class="btn btn-xs btn-secondary">Load Sample Steam Text</button>
+          </div>
+          <textarea
+            id="cg-raw-steam-specs"
+            rows="5"
+            placeholder="MINIMUM:&#10;Processor: Intel Core i5-8400 or AMD Ryzen 5 1600&#10;Memory: 16 GB RAM&#10;Graphics: NVIDIA GeForce GTX 1060 6GB or AMD Radeon RX 580 8GB&#10;Storage: 90 GB available space&#10;&#10;RECOMMENDED:&#10;Processor: Intel Core i7-10700K or AMD Ryzen 7 5800X&#10;Memory: 16 GB RAM&#10;Graphics: NVIDIA GeForce RTX 3070 8GB or AMD Radeon RX 6800&#10;Storage: 90 GB available space (SSD required)"
+          ></textarea>
+          <div class="drawer-actions" style="margin-top: 10px;">
+            <button id="btn-parse-steam-specs" class="btn btn-primary">⚡ Parse &amp; Analyze Pasted Steam Specs</button>
+            <span id="parse-reqs-status" class="parse-status"></span>
+          </div>
+        </div>
+
+        <div class="divider-label"><span>OR EDIT MANUAL COMPONENT REQUIREMENTS</span></div>
+
         <div class="form-row">
           <label>Game Title <input type="text" id="cg-title" value="GTA VI (Estimated PC)" /></label>
           <label>Storage Needed (GB) <input type="number" id="cg-storage" value="150" /></label>
@@ -99,7 +118,7 @@
           <label>Rec VRAM (GB) <input type="number" id="cg-rec-vram" value="12" /></label>
         </div>
         <div class="drawer-actions">
-          <button id="btn-run-custom-game" class="btn btn-primary">Analyze Custom Game</button>
+          <button id="btn-run-custom-game" class="btn btn-secondary">Analyze Manual Specs</button>
         </div>
       </div>
     </section>
@@ -109,13 +128,39 @@
       <aside class="game-sidebar">
         <div class="sidebar-header">
           <h3>🎮 Select a Game</h3>
-          <input type="search" id="game-search" placeholder="Search games (e.g. Cyberpunk, Wukong, CS2)..." />
+
+          <!-- Filter Bar: All Catalog Games vs Installed on My PC (count) -->
+          <div class="sidebar-filter-tabs" role="tablist">
+            <button id="filter-tab-all" class="filter-tab active" data-source="all" type="button">
+              All Catalog Games <span id="count-catalog" class="tab-count">0</span>
+            </button>
+            <button id="filter-tab-installed" class="filter-tab" data-source="installed" type="button">
+              Installed on My PC (<span id="count-installed">0</span>)
+            </button>
+          </div>
+
+          <!-- Search + Genre Filter Dropdown -->
+          <div class="sidebar-controls">
+            <input type="search" id="game-search" placeholder="Search games (e.g. Cyberpunk, Wukong, FFXIV)..." />
+            <div class="sidebar-select-row">
+              <select id="game-genre-filter" aria-label="Filter by Genre">
+                <option value="">All Genres</option>
+              </select>
+              <select id="game-tier-filter" aria-label="Filter by Compatibility Tier">
+                <option value="">All Tiers</option>
+                <option value="EXCEEDS_RECOMMENDED">Ultra / High Ready</option>
+                <option value="RECOMMENDED">Recommended Ready+</option>
+                <option value="PLAYABLE">Minimum Ready+</option>
+                <option value="BELOW_MINIMUM">Below Minimum</option>
+              </select>
+            </div>
+          </div>
         </div>
         <div id="game-list" class="game-list"></div>
       </aside>
 
       <section class="analysis-panel" id="analysis-panel">
-        <div class="empty-state">Select a game on the left to inspect compatibility & optimal settings.</div>
+        <div class="empty-state">Select a game on the left to inspect compatibility &amp; optimal settings.</div>
       </section>
     </main>
   </div>
