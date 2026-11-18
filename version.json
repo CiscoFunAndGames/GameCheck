@@ -1,14 +1,22 @@
 {
-  "calver": "2026.11.17",
-  "npmVersion": "2026.11.17-2",
-  "patchLevel": 2,
-  "fullVersion": "2026.11.17.2",
-  "gitTag": "v2026.11.17.2",
+  "calver": "2026.11.18",
+  "npmVersion": "2026.11.18",
+  "patchLevel": 0,
+  "fullVersion": "2026.11.18",
+  "gitTag": "v2026.11.18",
   "scheme": "YYYY.MM.DD[.PATCH]",
   "channel": "stable",
-  "releasedAt": "2026-11-17T22:45:00-03:00",
-  "notes": "CalVer 2026.11.17.2 Release: GameCheck — Pure 100% Native C++17 Desktop GUI Application (Win32 API + GDI+ + ComCtl32 + ComDlg32 on Windows, C++17 on Linux), replacing Electron with a zero-overhead native desktop executable (bin/GameCheck.exe).",
+  "releasedAt": "2026-11-18T03:22:13.882Z",
+  "notes": "Automated CI release build (89ef50c)",
   "history": [
+    {
+      "version": "2026.11.18",
+      "calver": "2026.11.18",
+      "patchLevel": 0,
+      "gitTag": "v2026.11.18",
+      "releasedAt": "2026-11-18T03:22:13.882Z",
+      "notes": "Automated CI release build (89ef50c)"
+    },
     {
       "version": "2026.11.17.2",
       "calver": "2026.11.17",
