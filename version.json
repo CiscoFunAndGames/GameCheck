@@ -1,14 +1,22 @@
 {
   "calver": "2026.11.18",
-  "npmVersion": "2026.11.18-1",
-  "patchLevel": 1,
-  "fullVersion": "2026.11.18.1",
-  "gitTag": "v2026.11.18.1",
+  "npmVersion": "2026.11.18-2",
+  "patchLevel": 2,
+  "fullVersion": "2026.11.18.2",
+  "gitTag": "v2026.11.18.2",
   "scheme": "YYYY.MM.DD[.PATCH]",
   "channel": "stable",
-  "releasedAt": "2026-11-18T03:30:01.730Z",
-  "notes": "Automated CI release build (07edba2)",
+  "releasedAt": "2026-11-18T03:36:56.895Z",
+  "notes": "Automated CI release build (c23c5f7)",
   "history": [
+    {
+      "version": "2026.11.18.2",
+      "calver": "2026.11.18",
+      "patchLevel": 2,
+      "gitTag": "v2026.11.18.2",
+      "releasedAt": "2026-11-18T03:36:56.895Z",
+      "notes": "Automated CI release build (c23c5f7)"
+    },
     {
       "version": "2026.11.18.1",
       "calver": "2026.11.18",

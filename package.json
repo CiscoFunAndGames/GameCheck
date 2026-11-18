@@ -1,6 +1,6 @@
 {
   "name": "pc-game-checker",
-  "version": "2026.11.18-1",
+  "version": "2026.11.18-2",
   "description": "GameCheck — Pure C++17 Native Desktop Application (Win32/GDI+ & Linux) for PC Hardware Detection, 'Can I Run It?' Analysis, and Screen-Aware Game Optimization",
   "main": "src/main.js",
   "scripts": {
