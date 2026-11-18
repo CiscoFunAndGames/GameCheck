@@ -648,7 +648,7 @@ function updateCalVerHeaderBadge(versionObj) {
     currentAppInfo?.calver ||
     currentAppInfo?.version ||
     '2026.11.17';
-  badgeEl.textContent = `CalVer v${fullVer}`;
+  badgeEl.textContent = `v${fullVer}`;
 }
 
 function updateRuntimeStatusPill(specs) {
