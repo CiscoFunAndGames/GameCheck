@@ -337,10 +337,13 @@ async function main() {
       const tempPatchOut = path.join(tempPatchWorkspace, 'ipc-test-patch.rigpatch.json');
       const tempBackupDir = path.join(tempPatchWorkspace, 'backups');
 
+      const liveVer = require('../src/version').getVersionInfo(ROOT_DIR);
+      const nextTestVersion = `${liveVer.calver}.${(liveVer.patchLevel || 0) + 1}`;
+
       const createPatchRes = await invoke('rigcheck:create-patch', {
         targetDir: tempPatchWorkspace,
         outputPath: tempPatchOut,
-        targetVersion: '2026.11.17.3',
+        targetVersion: nextTestVersion,
         notes: 'Automated IPC integration test patch',
         files: ['version.json', 'src/version.js', 'public/index.html']
       });
@@ -356,7 +359,7 @@ async function main() {
         backupDir: tempBackupDir
       });
       assert.ok(applyPatchRes && applyPatchRes.ok, 'apply-patch should succeed');
-      assert.strictEqual(applyPatchRes.newVersion, '2026.11.17.3');
+      assert.strictEqual(applyPatchRes.newVersion, nextTestVersion);
       console.log(
         `  ✓ rigcheck:apply-patch -> upgraded ${applyPatchRes.previousVersion} -> ${applyPatchRes.newVersion} (${applyPatchRes.filesUpdated} files)`
       );
@@ -366,7 +369,7 @@ async function main() {
         backupDir: tempBackupDir
       });
       assert.ok(rollbackRes && rollbackRes.ok, 'rollback-patch should succeed and restore previous version');
-      assert.strictEqual(rollbackRes.restoredVersion, '2026.11.17.2');
+      assert.strictEqual(rollbackRes.restoredVersion, liveVer.fullVersion);
       console.log(`  ✓ rigcheck:rollback-patch -> restored version ${rollbackRes.restoredVersion}`);
     } finally {
       fs.rmSync(tempPatchWorkspace, { recursive: true, force: true });
