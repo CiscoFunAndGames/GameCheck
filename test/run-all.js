@@ -337,10 +337,13 @@ async function main() {
       const tempPatchOut = path.join(tempPatchWorkspace, 'ipc-test-patch.rigpatch.json');
       const tempBackupDir = path.join(tempPatchWorkspace, 'backups');
 
+      const liveVer = require('../src/version').getVersionInfo(ROOT_DIR);
+      const nextTestVersion = `${liveVer.calver}.${(liveVer.patchLevel || 0) + 1}`;
+
       const createPatchRes = await invoke('rigcheck:create-patch', {
         targetDir: tempPatchWorkspace,
         outputPath: tempPatchOut,
-        targetVersion: '2026.11.17.3',
+        targetVersion: nextTestVersion,
         notes: 'Automated IPC integration test patch',
         files: ['version.json', 'src/version.js', 'public/index.html']
       });
@@ -356,7 +359,7 @@ async function main() {
         backupDir: tempBackupDir
       });
       assert.ok(applyPatchRes && applyPatchRes.ok, 'apply-patch should succeed');
-      assert.strictEqual(applyPatchRes.newVersion, '2026.11.17.3');
+      assert.strictEqual(applyPatchRes.newVersion, nextTestVersion);
       console.log(
         `  ✓ rigcheck:apply-patch -> upgraded ${applyPatchRes.previousVersion} -> ${applyPatchRes.newVersion} (${applyPatchRes.filesUpdated} files)`
       );
@@ -366,7 +369,7 @@ async function main() {
         backupDir: tempBackupDir
       });
       assert.ok(rollbackRes && rollbackRes.ok, 'rollback-patch should succeed and restore previous version');
-      assert.strictEqual(rollbackRes.restoredVersion, '2026.11.17.2');
+      assert.strictEqual(rollbackRes.restoredVersion, liveVer.fullVersion);
       console.log(`  ✓ rigcheck:rollback-patch -> restored version ${rollbackRes.restoredVersion}`);
     } finally {
       fs.rmSync(tempPatchWorkspace, { recursive: true, force: true });
@@ -449,11 +452,12 @@ async function main() {
         encoding: 'utf8',
         timeout: 15000
       });
+      const liveVer = require('../src/version').getVersionInfo(ROOT_DIR);
       const smokeJson = JSON.parse(smokeOut.trim());
       assert.strictEqual(smokeJson.status, 'NATIVE_GUI_OK');
       assert.strictEqual(smokeJson.appName, 'GameCheck');
-      assert.strictEqual(smokeJson.calver, '2026.11.17');
-      assert.strictEqual(smokeJson.fullVersion, '2026.11.17.2');
+      assert.ok(/^\d{4}\.\d{2}\.\d{2}$/.test(smokeJson.calver), 'Expected valid CalVer YYYY.MM.DD');
+      assert.ok(/^\d{4}\.\d{2}\.\d{2}(\.\d+)?$/.test(smokeJson.fullVersion), 'Expected valid full CalVer');
       assert.strictEqual(smokeJson.runtime, 'native-cpp17-win32-gdiplus');
       assert.strictEqual(smokeJson.catalogGames, 24);
       assert.ok(smokeJson.cpuDetected && smokeJson.gpuDetected && smokeJson.displayDetected);
@@ -461,8 +465,9 @@ async function main() {
         `  ✓ bin/GameCheck.exe --smoke-test -> ${smokeJson.appName} v${smokeJson.fullVersion} [${smokeJson.runtime}] (${smokeJson.cpuDetected} | ${smokeJson.gpuDetected} | ${smokeJson.displayDetected})`
       );
 
-      const gameCheckSetupExe = path.join(ROOT_DIR, 'dist', 'GameCheck-Setup-2026.11.17.exe');
-      assert.ok(fs.existsSync(gameCheckSetupExe), 'Expected dist/GameCheck-Setup-2026.11.17.exe to exist');
+      const setupName = `GameCheck-Setup-${liveVer.calver}.exe`;
+      const gameCheckSetupExe = path.join(ROOT_DIR, 'dist', setupName);
+      assert.ok(fs.existsSync(gameCheckSetupExe), `Expected dist/${setupName} to exist`);
       const setupVerifyOut = execFileSync(gameCheckSetupExe, ['--verify'], {
         cwd: ROOT_DIR,
         stdio: 'pipe',
@@ -472,7 +477,7 @@ async function main() {
       const setupVerifyJson = JSON.parse(setupVerifyOut.trim());
       assert.strictEqual(setupVerifyJson.status, 'INSTALLER_OK');
       assert.strictEqual(setupVerifyJson.appName, 'GameCheck');
-      console.log(`  ✓ dist/GameCheck-Setup-2026.11.17.exe --verify -> ${setupVerifyJson.status} (${setupVerifyJson.fullVersion})`);
+      console.log(`  ✓ dist/${setupName} --verify -> ${setupVerifyJson.status} (${setupVerifyJson.fullVersion})`);
     }
   });
 

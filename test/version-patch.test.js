@@ -175,26 +175,27 @@ function runVersionPatchTests() {
   assert.ok(distPatches.length >= 1, 'At least one .rigpatch.json bundle should exist in dist/patches/');
   assert.strictEqual(distPatches[0].valid, true, 'Sample patch in dist/patches/ must be valid');
 
+  const liveVer = getVersionInfo(ROOT_DIR);
   const installerArtifacts = getInstallerArtifacts(path.join(ROOT_DIR, 'dist'));
-  assert.ok(installerArtifacts.some((a) => a.fileName === 'rigcheck-installer-2026.11.17.sh'), 'Linux installer .sh should exist in dist/');
-  assert.ok(installerArtifacts.some((a) => a.fileName === 'RigCheck-App-Payload-2026.11.17.zip'), 'Payload .zip should exist in dist/');
+  assert.ok(installerArtifacts.some((a) => a.fileName === `rigcheck-installer-${liveVer.calver}.sh`), 'Linux installer .sh should exist in dist/');
+  assert.ok(installerArtifacts.some((a) => a.fileName === `RigCheck-App-Payload-${liveVer.calver}.zip`), 'Payload .zip should exist in dist/');
   assert.ok(fs.existsSync(path.join(ROOT_DIR, 'dist', 'SHA256SUMS.txt')), 'SHA256SUMS.txt should exist in dist/');
   assert.ok(fs.existsSync(path.join(ROOT_DIR, 'dist', 'release-manifest.json')), 'release-manifest.json should exist in dist/');
 
   // Verify Linux installer script content for permissions & dependency installation
-  const linuxShContent = fs.readFileSync(path.join(ROOT_DIR, 'dist', 'rigcheck-installer-2026.11.17.sh'), 'utf8');
+  const linuxShContent = fs.readFileSync(path.join(ROOT_DIR, 'dist', `rigcheck-installer-${liveVer.calver}.sh`), 'utf8');
   assert.ok(linuxShContent.includes('--check-deps'), 'Linux installer must support --check-deps');
   assert.ok(linuxShContent.includes('Grant permission to install missing system dependencies via sudo'), 'Linux installer must ask for sudo permission');
   assert.ok(linuxShContent.includes('rigcheck_probe.cpp'), 'Linux installer must compile native C++17 probe');
 
   if (process.platform === 'win32') {
-    const exePath = path.join(ROOT_DIR, 'dist', 'RigCheck-Optimizer-Setup-2026.11.17.exe');
+    const exePath = path.join(ROOT_DIR, 'dist', `RigCheck-Optimizer-Setup-${liveVer.calver}.exe`);
     assert.ok(fs.existsSync(exePath), 'Windows native C++ .exe installer must exist in dist/');
 
     const verifyOut = execFileSync(exePath, ['--verify'], { encoding: 'utf8', timeout: 8000 });
     const verifyJson = JSON.parse(verifyOut.trim());
     assert.strictEqual(verifyJson.status, 'INSTALLER_OK');
-    assert.strictEqual(verifyJson.calver, '2026.11.17');
+    assert.strictEqual(verifyJson.calver, liveVer.calver);
     assert.strictEqual(verifyJson.installerType, 'win32-native-cpp-exe');
     assert.ok(Array.isArray(verifyJson.dependenciesManaged) && verifyJson.dependenciesManaged.includes('Electron'));
     assert.ok(verifyJson.embeddedPayloadBytes > 10000);
