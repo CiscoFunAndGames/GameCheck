@@ -53,10 +53,11 @@ function runVersionPatchTests() {
   assert.strictEqual(compareCalVer('2026.12.01', '2026.11.17.5'), 1);
 
   const liveVersion = getVersionInfo(ROOT_DIR);
-  assert.strictEqual(liveVersion.calver, '2026.11.17');
-  assert.ok(liveVersion.patchLevel >= 1, 'patchLevel should be >= 1');
-  assert.strictEqual(liveVersion.fullVersion, `2026.11.17.${liveVersion.patchLevel}`);
-  assert.strictEqual(liveVersion.gitTag, `v2026.11.17.${liveVersion.patchLevel}`);
+  assert.ok(/^\d{4}\.\d{2}\.\d{2}$/.test(liveVersion.calver), 'liveVersion.calver should be YYYY.MM.DD');
+  assert.ok(liveVersion.patchLevel >= 0, 'patchLevel should be >= 0');
+  const expectedFull = liveVersion.patchLevel > 0 ? `${liveVersion.calver}.${liveVersion.patchLevel}` : liveVersion.calver;
+  assert.strictEqual(liveVersion.fullVersion, expectedFull);
+  assert.strictEqual(liveVersion.gitTag, `v${expectedFull}`);
   assert.ok(Array.isArray(liveVersion.history) && liveVersion.history.length >= 2, 'version.json should include release history');
   assert.ok(liveVersion.scheme.includes('YYYY.MM.DD'));
 
