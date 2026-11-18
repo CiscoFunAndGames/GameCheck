@@ -19,8 +19,52 @@ permissions:
   contents: write
 
 jobs:
+  bump-calver:
+    name: Auto-Bump CalVer Version
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: ubuntu-latest
+    outputs:
+      calver: ${{ steps.bump.outputs.calver }}
+      full_version: ${{ steps.bump.outputs.full_version }}
+      git_tag: ${{ steps.bump.outputs.git_tag }}
+      build_ref: ${{ steps.bump.outputs.build_ref }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Bump CalVer & Commit Version Update
+        id: bump
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "Tag push detected (${{ github.ref_name }}); keeping version.json as-is."
+          else
+            node scripts/calver.js bump "Automated CI release build (${GITHUB_SHA::7})"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add version.json package.json
+            if ! git diff --cached --quiet; then
+              FULL_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('version.json','utf8')).fullVersion)")
+              git commit -m "chore(release): bump CalVer to v${FULL_VER} [skip ci]"
+              git push origin "HEAD:${{ github.ref_name }}"
+            fi
+          fi
+          FULL_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('version.json','utf8')).fullVersion)")
+          CALVER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('version.json','utf8')).calver)")
+          echo "calver=${CALVER}" >> $GITHUB_OUTPUT
+          echo "full_version=${FULL_VER}" >> $GITHUB_OUTPUT
+          echo "git_tag=v${FULL_VER}" >> $GITHUB_OUTPUT
+          echo "build_ref=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
   build-windows:
     name: Build & Verify Windows Native C++ Installer (.exe)
+    needs: [bump-calver]
     runs-on: windows-latest
     outputs:
       calver: ${{ steps.version.outputs.calver }}
@@ -29,6 +73,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump-calver.outputs.build_ref }}
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
@@ -50,12 +96,14 @@ jobs:
         run: |
           if (Test-Path package-lock.json) { npm ci } else { npm install }
 
-      - name: Compile C++17 Native Display & Driver Probe (Windows)
+      - name: Compile C++17 Native Display Probe & Desktop GUI (Windows)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path bin | Out-Null
-          g++ -O2 -std=c++17 native/rigcheck_probe.cpp -o bin/rigcheck-native-probe.exe -luser32 -lgdi32 -ladvapi32 -static
+          g++ -O2 -std=c++17 native/rigcheck_probe.cpp -o bin/rigcheck-native-probe.exe -luser32 -lgdi32 -ladvapi32 -static -s
+          g++ -O2 -std=c++17 native/gamecheck_desktop.cpp -o bin/GameCheck.exe -lgdiplus -luxtheme -lcomctl32 -lcomdlg32 -lshell32 -luser32 -lgdi32 -ladvapi32 -lole32 -luuid -static -s
           .\bin\rigcheck-native-probe.exe
+          .\bin\GameCheck.exe --smoke-test
 
       - name: Build SHA-256 Live Patch Bundle & Native C++ Windows Installer
         shell: pwsh
@@ -78,8 +126,10 @@ jobs:
       - name: Upload Windows Downloadable Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: RigCheck-Windows-Installer
+          name: GameCheck-Windows-Installer
           path: |
+            dist/GameCheck-Setup-*.exe
+            dist/GameCheck-App-Payload-*.zip
             dist/RigCheck-Optimizer-Setup-*.exe
             dist/RigCheck-App-Payload-*.zip
             dist/rigcheck-patch-*.rigpatch.json
@@ -89,10 +139,13 @@ jobs:
 
   build-linux:
     name: Build & Verify Linux Self-Contained Installer (.sh)
+    needs: [bump-calver]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump-calver.outputs.build_ref }}
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
@@ -132,8 +185,9 @@ jobs:
       - name: Upload Linux Downloadable Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: RigCheck-Linux-Installer
+          name: GameCheck-Linux-Installer
           path: |
+            dist/gamecheck-installer-*.sh
             dist/rigcheck-installer-*.sh
           if-no-files-found: error
 
@@ -145,17 +199,19 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump-calver.outputs.build_ref }}
 
       - name: Download Windows Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: RigCheck-Windows-Installer
+          name: GameCheck-Windows-Installer
           path: release-assets
 
       - name: Download Linux Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: RigCheck-Linux-Installer
+          name: GameCheck-Linux-Installer
           path: release-assets
 
       - name: Generate Combined SHA256SUMS.txt & Release Body
@@ -199,14 +255,14 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.build-windows.outputs.full_version }}
-          name: RigCheck Optimizer v${{ needs.build-windows.outputs.full_version }} (CalVer ${{ needs.build-windows.outputs.calver }})
+          name: GameCheck v${{ needs.build-windows.outputs.full_version }} (CalVer ${{ needs.build-windows.outputs.calver }})
           body_path: RELEASE_NOTES.md
           draft: false
           prerelease: false
           files: |
-            release-assets/RigCheck-Optimizer-Setup-*.exe
-            release-assets/rigcheck-installer-*.sh
-            release-assets/RigCheck-App-Payload-*.zip
+            release-assets/GameCheck-Setup-*.exe
+            release-assets/gamecheck-installer-*.sh
+            release-assets/GameCheck-App-Payload-*.zip
             release-assets/rigcheck-patch-*.rigpatch.json
             release-assets/SHA256SUMS.txt
             release-assets/release-manifest.json
