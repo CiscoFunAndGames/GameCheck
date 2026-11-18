@@ -30,14 +30,14 @@ jobs:
       build_ref: ${{ steps.bump.outputs.build_ref }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Bump CalVer & Commit Version Update
         id: bump
@@ -72,14 +72,14 @@ jobs:
       git_tag: ${{ steps.version.outputs.git_tag }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.bump-calver.outputs.build_ref }}
 
       - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Read CalVer Metadata from version.json
         id: version
@@ -125,7 +125,7 @@ jobs:
         run: node test/run-all.js
 
       - name: Upload Windows Downloadable Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: GameCheck-Windows-Installer
           path: |
@@ -144,14 +144,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.bump-calver.outputs.build_ref }}
 
       - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install Linux System Dependencies (g++, pciutils, mesa-utils, x11-xserver-utils, unzip)
         run: |
@@ -184,7 +184,7 @@ jobs:
         run: node test/run-all.js
 
       - name: Upload Linux Downloadable Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: GameCheck-Linux-Installer
           path: |
@@ -199,18 +199,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.bump-calver.outputs.build_ref }}
 
       - name: Download Windows Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: GameCheck-Windows-Installer
           path: release-assets
 
       - name: Download Linux Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: GameCheck-Linux-Installer
           path: release-assets
