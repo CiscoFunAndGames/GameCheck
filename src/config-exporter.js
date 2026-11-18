@@ -1,27 +1,23 @@
-const { analyzeGameCompatibility } = require('./analyzer');
+const { analyzeGameCompatibility, normalizeOptimizationMode, buildDriverAppRecommendations } = require('./analyzer');
 
 /**
  * Computes per-setting FPS gain (%) and VRAM impact (MB) tailored to the user's
- * detected GPU, VRAM, and CPU against the selected game.
- *
- * @param {object} specs - Output from detectSystemSpecs()
- * @param {object} game - Game object from games-db or custom game parser
- * @param {object} [analysis] - Output from analyzeGameCompatibility(specs, game)
- * @returns {Array<{
- *   setting: string,
- *   recommendedValue: string,
- *   fpsGainPercent: number,
- *   vramImpactMB: number,
- *   visualCost: string,
- *   note: string
- * }>}
+ * detected GPU, VRAM, CPU, Display, and active Optimization Mode against the selected game.
  */
-function getPerSettingImpact(specs, game, analysis) {
-  const resolvedAnalysis = analysis || analyzeGameCompatibility(specs, game);
-  const optimal = resolvedAnalysis.optimalConfig || {};
+function getPerSettingImpact(specs, game, analysis, options = {}) {
+  const resolvedAnalysis = analysis || analyzeGameCompatibility(specs, game, options);
+  const baseOptimal = resolvedAnalysis.optimalConfig || {};
+  const activeMode = options.optimizationMode
+    ? normalizeOptimizationMode(options.optimizationMode)
+    : (baseOptimal.activeMode || 'optimal');
+
+  const optimal = (baseOptimal.modeProfiles && baseOptimal.modeProfiles[activeMode])
+    ? { ...baseOptimal, ...baseOptimal.modeProfiles[activeMode], activeMode }
+    : baseOptimal;
 
   const gpu = specs?.gpu || { name: 'Generic GPU', score: 45, vramGB: 6, vendor: 'unknown', rtCapable: false, upscaler: 'FSR' };
   const cpu = specs?.cpu || { name: 'Generic CPU', score: 50, cores: 6, threads: 12 };
+  const display = baseOptimal.displayTarget || specs?.display || { monitorName: 'Primary Display', width: 1920, height: 1080, refreshRateHz: 60 };
   const recGpuScore = Math.max(15, game?.recommended?.gpuScore || 50);
   const recCpuScore = Math.max(15, game?.recommended?.cpuScore || 50);
   const recVramGB = Math.max(2, game?.recommended?.vramGB || 6);
@@ -46,13 +42,22 @@ function getPerSettingImpact(specs, game, analysis) {
   const supportsFrameGen = /dlss\s*[34]|fsr\s*[34]/i.test(gpu.upscaler || '');
 
   // 1. Shadow Quality
-  const shadowValue = optimal.shadows || (gpuRatio >= 1.3 ? 'High / Ultra' : gpuRatio >= 0.95 ? 'High' : gpuRatio >= 0.75 ? 'Medium' : 'Low');
-  const shadowFpsGain = gpuRatio < 0.85 ? 22 : gpuRatio < 1.15 ? 16 : 11;
+  const shadowValue = optimal.shadows
+    || (activeMode === 'full_fps'
+      ? 'Low'
+      : activeMode === 'quality_30_60'
+        ? 'Ultra'
+        : gpuRatio >= 1.3 ? 'High / Ultra' : gpuRatio >= 0.95 ? 'High' : 'Medium');
+  const shadowFpsGain = activeMode === 'full_fps' ? 24 : gpuRatio < 0.85 ? 22 : gpuRatio < 1.15 ? 16 : 11;
   const shadowVramMB = shadowValue.includes('Low') ? 520 : shadowValue.includes('Medium') ? 380 : 240;
 
   // 2. Volumetric Fog / Clouds
-  const fogValue = gpuRatio >= 1.35 ? 'High' : gpuRatio >= 0.9 ? 'Medium / High' : 'Low / Medium';
-  const fogFpsGain = gpuRatio < 0.9 ? 19 : gpuRatio < 1.2 ? 15 : 10;
+  const fogValue = activeMode === 'full_fps'
+    ? 'Low'
+    : activeMode === 'quality_30_60'
+      ? 'High / Ultra'
+      : gpuRatio >= 1.35 ? 'High' : gpuRatio >= 0.9 ? 'Medium / High' : 'Low / Medium';
+  const fogFpsGain = activeMode === 'full_fps' ? 21 : gpuRatio < 0.9 ? 19 : gpuRatio < 1.2 ? 15 : 10;
   const fogVramMB = 220;
 
   // 3. Ray Tracing
@@ -74,14 +79,20 @@ function getPerSettingImpact(specs, game, analysis) {
     rtVramMB = 1250;
     rtVisualCost = 'Moderate';
     rtNote = `${gpu.name} lacks dedicated RT cores; keeping Ray Tracing Off avoids severe frame pacing stalls.`;
-  } else if (gpuRatio >= 1.45 && gpu.vramGB >= 12) {
+  } else if (activeMode === 'quality_30_60' && gpu.vramGB >= 8) {
+    rtValue = optimal.rayTracing && optimal.rayTracing !== 'Off' ? optimal.rayTracing : 'Medium (Cinematic RT)';
+    rtFpsGain = 22;
+    rtVramMB = 1100;
+    rtVisualCost = 'Low';
+    rtNote = `Quality (30–60 FPS) mode enables ${rtValue} on ${gpu.name} for peak lighting fidelity.`;
+  } else if (gpuRatio >= 1.45 && gpu.vramGB >= 12 && activeMode !== 'full_fps') {
     rtValue = 'Medium / High';
     rtFpsGain = 24;
     rtVramMB = 1100;
     rtVisualCost = 'Low-Medium';
     rtNote = `${gpu.name} (${gpu.vramGB} GB VRAM) has sufficient RT & VRAM headroom for hybrid Ray Tracing.`;
   } else {
-    rtValue = 'Off (Recommended for FPS)';
+    rtValue = activeMode === 'full_fps' ? 'Off (Disabled for Max Hz)' : 'Off (Recommended for FPS)';
     rtFpsGain = 34;
     rtVramMB = 1200;
     rtVisualCost = 'Moderate';
@@ -96,21 +107,29 @@ function getPerSettingImpact(specs, game, analysis) {
   let upscalingNote = '';
 
   if (!supportsUpscaling) {
-    upscalingValue = 'Native (100% Scale)';
-    upscalingFpsGain = gpuRatio < 0.85 ? 18 : 0;
+    upscalingValue = activeMode === 'full_fps' ? '85% Render Scale' : 'Native (100% Scale)';
+    upscalingFpsGain = activeMode === 'full_fps' || gpuRatio < 0.85 ? 18 : 0;
     upscalingVramMB = 180;
     upscalingVisualCost = 'Low';
     upscalingNote = `${game.title} does not include built-in temporal upscalers; use driver-level RSR/NIS if extra FPS is needed.`;
   } else {
-    upscalingFpsGain = gpuRatio < 0.85 ? 36 : gpuRatio < 1.15 ? 26 : 18;
+    upscalingFpsGain = upscalingValue.includes('Performance')
+      ? 38
+      : upscalingValue.includes('Balanced')
+        ? 29
+        : gpuRatio < 0.85 ? 34 : 22;
     upscalingVramMB = 420;
     upscalingVisualCost = upscalingValue.includes('Performance') ? 'Low-Medium' : 'Minimal';
-    upscalingNote = `${preferredUpscaler} (${gpu.upscaler || 'Quality'}) significantly reduces shader load on ${gpu.name} with near-native clarity.`;
+    upscalingNote = `${preferredUpscaler} (${upscalingValue}) reduces shader load at ${display.width}x${display.height} (${display.refreshRateHz}Hz).`;
   }
 
   // 5. Ambient Occlusion
-  const aoValue = gpuRatio >= 1.1 ? 'HBAO+ / Ultra' : gpuRatio >= 0.8 ? 'SSAO (Medium)' : 'Low / Off';
-  const aoFpsGain = gpuRatio < 0.85 ? 10 : 7;
+  const aoValue = activeMode === 'full_fps'
+    ? 'Low / Off'
+    : activeMode === 'quality_30_60'
+      ? 'HBAO+ / RTAO Ultra'
+      : gpuRatio >= 1.1 ? 'HBAO+ / High' : gpuRatio >= 0.8 ? 'SSAO (Medium)' : 'Low / Off';
+  const aoFpsGain = activeMode === 'full_fps' ? 12 : gpuRatio < 0.85 ? 10 : 7;
   const aoVramMB = 160;
 
   // 6. Texture Quality
@@ -123,12 +142,16 @@ function getPerSettingImpact(specs, game, analysis) {
     : `Lowering textures to ${textureValue} prevents PCIe VRAM spillover stutter on ${gpu.vramGB} GB VRAM (${recVramGB} GB recommended).`;
 
   // 7. Crowd / Foliage Density
-  const crowdValue = cpuRatio >= 1.15 ? 'High' : cpuRatio >= 0.9 ? 'Medium' : 'Low';
-  const crowdFpsGain = cpuRatio < 0.95 ? 16 : 11;
+  const crowdValue = activeMode === 'full_fps'
+    ? (cpuRatio >= 1.2 ? 'Medium' : 'Low')
+    : activeMode === 'quality_30_60'
+      ? 'High / Ultra'
+      : cpuRatio >= 1.15 ? 'High' : cpuRatio >= 0.9 ? 'Medium' : 'Low';
+  const crowdFpsGain = activeMode === 'full_fps' ? 18 : cpuRatio < 0.95 ? 16 : 11;
   const crowdVramMB = 210;
   const crowdVisualCost = crowdValue === 'Low' ? 'Moderate' : 'Low';
-  const crowdNote = cpuRatio < 1.0
-    ? `Tuned to ${crowdValue} for ${cpu.name} (${cpu.threads} threads) to prevent 1% low drops in dense hubs.`
+  const crowdNote = cpuRatio < 1.0 || activeMode === 'full_fps'
+    ? `Tuned to ${crowdValue} for ${cpu.name} (${cpu.threads} threads) to prevent 1% low drops and maximize ${display.refreshRateHz}Hz pacing.`
     : `${cpu.name} (${cpu.threads} threads) comfortably sustains ${crowdValue} simulation & draw-call density.`;
 
   // 8. Frame Generation
@@ -138,12 +161,20 @@ function getPerSettingImpact(specs, game, analysis) {
   let fgVisualCost = 'Minimal';
   let fgNote = '';
 
-  if (supportsFrameGen && gpu.vramGB >= 8) {
-    fgValue = gpuRatio >= 0.95 ? 'On (DLSS 3 / FSR 3 FG)' : 'Optional (Requires 55+ Base FPS)';
+  if (activeMode === 'quality_30_60') {
+    fgValue = 'Off (Native 30–60 FPS Pacing)';
+    fgFpsGain = 0;
+    fgVramMB = 350;
+    fgVisualCost = 'None';
+    fgNote = 'Disabled in Quality (30–60 FPS) mode to avoid interpolation artifacts at lower base framerates.';
+  } else if (supportsFrameGen && gpu.vramGB >= 8) {
+    fgValue = optimal.frameGen && optimal.frameGen !== 'Off'
+      ? optimal.frameGen
+      : (gpuRatio >= 0.95 ? 'On (DLSS 3 / FSR 3 FG)' : 'Optional (Requires 55+ Base FPS)');
     fgFpsGain = 42;
     fgVramMB = 380;
     fgVisualCost = 'Minimal';
-    fgNote = `${gpu.name} supports ${gpu.upscaler} Frame Generation; requires ~380 MB extra VRAM and Reflex/Anti-Lag enabled.`;
+    fgNote = `${gpu.name} supports ${gpu.upscaler} Frame Generation; ideal for saturating ${display.refreshRateHz}Hz displays with Reflex/Anti-Lag.`;
   } else {
     fgValue = 'Off';
     fgFpsGain = 0;
@@ -239,24 +270,30 @@ function slugifyGame(game) {
 }
 
 /**
- * Generates downloadable configuration files (.ini, .json, .md) for a game and PC hardware profile.
- *
- * @param {object} specs - Output from detectSystemSpecs()
- * @param {object} game - Game object from games-db or custom game parser
- * @param {object} [analysis] - Output from analyzeGameCompatibility(specs, game)
- * @returns {{
- *   iniContent: string,
- *   jsonContent: string,
- *   markdownGuide: string,
- *   filenameBase: string
- * }}
+ * Generates downloadable configuration files (.ini, .json, .md) for a game, PC hardware profile,
+ * active screen, and selected optimization mode.
  */
-function exportGameConfigFiles(specs, game, analysis) {
-  const resolvedAnalysis = analysis || analyzeGameCompatibility(specs, game);
-  const perSettingImpact = getPerSettingImpact(specs, game, resolvedAnalysis);
-  const optimal = resolvedAnalysis.optimalConfig || {};
+function exportGameConfigFiles(specs, game, analysis, options = {}) {
+  const resolvedAnalysis = analysis || analyzeGameCompatibility(specs, game, options);
+  const perSettingImpact = getPerSettingImpact(specs, game, resolvedAnalysis, options);
+  const baseOptimal = resolvedAnalysis.optimalConfig || {};
+  const activeMode = options.optimizationMode
+    ? normalizeOptimizationMode(options.optimizationMode)
+    : (baseOptimal.activeMode || 'optimal');
+  const optimal = (baseOptimal.modeProfiles && baseOptimal.modeProfiles[activeMode])
+    ? { ...baseOptimal, ...baseOptimal.modeProfiles[activeMode], activeMode }
+    : baseOptimal;
+
+  const displayTarget = optimal.displayTarget || specs?.display || {
+    monitorName: 'Primary Display',
+    width: 1920,
+    height: 1080,
+    refreshRateHz: 60,
+    resolutionLabel: '1920x1080 (1080p)'
+  };
+
   const slug = slugifyGame(game);
-  const filenameBase = `${slug}-optimal-settings`;
+  const filenameBase = `${slug}-${activeMode.replace(/_/g, '-')}-settings`;
 
   const settingMap = {};
   for (const item of perSettingImpact) {
@@ -272,27 +309,34 @@ function exportGameConfigFiles(specs, game, analysis) {
     !/off|not|unsupported/i.test(settingMap['Ray Tracing']?.recommendedValue || '');
   const fgEnabled = /^on/i.test(settingMap['Frame Generation']?.recommendedValue || '');
 
-  const resolutionMatch = (optimal.targetResolution || '1920x1080').match(/(\d{3,4})x(\d{3,4})/);
-  const resX = resolutionMatch ? Number(resolutionMatch[1]) : 1920;
-  const resY = resolutionMatch ? Number(resolutionMatch[2]) : 1080;
+  const resolutionMatch = (optimal.targetResolution || `${displayTarget.width}x${displayTarget.height}`).match(/(\d{3,5})x(\d{3,5})/);
+  const resX = resolutionMatch ? Number(resolutionMatch[1]) : (displayTarget.width || 1920);
+  const resY = resolutionMatch ? Number(resolutionMatch[2]) : (displayTarget.height || 1080);
+  const hz = displayTarget.refreshRateHz || 60;
 
   const iniLines = [
     `; ============================================================================`,
-    `; PC Game Compatibility & Optimal Graphics Profile (.INI)`,
+    `; PC Game Compatibility & Screen-Aware Optimal Graphics Profile (.INI)`,
     `; Game: ${game.title} (${game.engine || 'Custom Engine'})`,
+    `; Optimization Mode: ${optimal.label || activeMode.toUpperCase()}`,
     `; Generated For: ${specs.cpu.name} | ${specs.gpu.name} (${specs.gpu.vramGB} GB VRAM) | ${specs.ram.totalGB} GB RAM`,
+    `; Target Display: ${displayTarget.monitorName || displayTarget.name} (${resX}x${resY} @ ${hz}Hz)`,
     `; Compatibility Verdict: ${resolvedAnalysis.overallTier}`,
-    `; Estimated FPS: 1080p=${optimal.estimatedFps?.['1080p']?.avg || 60} | 1440p=${optimal.estimatedFps?.['1440p']?.avg || 45} | 4K=${optimal.estimatedFps?.['4K']?.avg || 30}`,
+    `; Estimated Screen FPS: ${optimal.estimatedScreenFps?.range || optimal.estimatedFps?.['1080p']?.range || '60 FPS'}`,
     `; ============================================================================`,
     ``,
     `[Display]`,
     `FullscreenMode=WindowedFullscreen`,
     `ResolutionSizeX=${resX}`,
     `ResolutionSizeY=${resY}`,
+    `RefreshRateHz=${hz}`,
+    `MonitorModel="${displayTarget.monitorName || displayTarget.name || 'Primary Display'}"`,
     `TargetResolution="${optimal.targetResolution || '1920x1080 (1080p)'}"`,
+    `OptimizationMode="${activeMode}"`,
     `OverallPreset="${optimal.preset || 'High'}"`,
+    `FrameRateCapAdvice="${optimal.fpsCapAdvice || ''}"`,
     `VSync=False`,
-    `VariableRefreshRate=True`,
+    `VariableRefreshRate=${hz >= 75 ? 'True' : 'False'}`,
     ``,
     `[Graphics.OptimalSettings]`,
     `ShadowQuality="${settingMap['Shadow Quality']?.recommendedValue}"`,
@@ -305,8 +349,8 @@ function exportGameConfigFiles(specs, game, analysis) {
     `FrameGeneration="${settingMap['Frame Generation']?.recommendedValue}"`,
     ``,
     `[ScalabilityGroups]`,
-    `sg.ResolutionQuality=${/performance/i.test(optimal.upscalingMode || '') ? 58 : /quality/i.test(optimal.upscalingMode || '') ? 67 : 100}`,
-    `sg.ViewDistanceQuality=${ Math.max(1, crowdIdx) }`,
+    `sg.ResolutionQuality=${/performance/i.test(optimal.upscalingMode || '') ? 58 : /balanced/i.test(optimal.upscalingMode || '') ? 62 : /quality/i.test(optimal.upscalingMode || '') ? 67 : 100}`,
+    `sg.ViewDistanceQuality=${Math.max(1, crowdIdx)}`,
     `sg.AntiAliasingQuality=2`,
     `sg.ShadowQuality=${shadowIdx}`,
     `sg.GlobalIlluminationQuality=${rtEnabled ? 3 : Math.max(1, fogIdx)}`,
@@ -328,8 +372,10 @@ function exportGameConfigFiles(specs, game, analysis) {
   const iniContent = iniLines.join('\n') + '\n';
 
   const jsonPayload = {
-    schemaVersion: '1.0',
+    schemaVersion: '2.0',
     generatedAt: new Date().toISOString(),
+    optimizationMode: activeMode,
+    optimizationModeLabel: optimal.label || activeMode,
     game: {
       id: game.id,
       title: game.title,
@@ -354,7 +400,8 @@ function exportGameConfigFiles(specs, game, analysis) {
         upscaler: specs.gpu.upscaler,
         score: specs.gpu.score
       },
-      ramGB: specs.ram.totalGB
+      ramGB: specs.ram.totalGB,
+      display: displayTarget
     },
     compatibility: {
       overallTier: resolvedAnalysis.overallTier,
@@ -364,7 +411,9 @@ function exportGameConfigFiles(specs, game, analysis) {
       bottleneck: resolvedAnalysis.bottleneck
     },
     optimalConfig: optimal,
-    perSettingImpact
+    perSettingImpact,
+    driverSuites: Array.isArray(specs.driverSuites) ? specs.driverSuites : [],
+    driverAdvisor: resolvedAnalysis.driverAdvisor || buildDriverAppRecommendations(specs, game, activeMode)
   };
 
   const jsonContent = JSON.stringify(jsonPayload, null, 2);
@@ -380,15 +429,24 @@ function exportGameConfigFiles(specs, game, analysis) {
     )
     .join('\n');
 
+  const drv = jsonPayload.driverAdvisor;
+  const driverRows = (drv?.settings || [])
+    .map((s) => `| **${s.setting}** | \`${s.recommendedValue}\` | ${s.reason} |`)
+    .join('\n');
+
   const markdownGuide = [
     `# ${game.title} — Optimal PC Settings & Tuning Checklist`,
     ``,
-    `> **Verdict**: \`${resolvedAnalysis.overallTier}\`  `,
-    `> **Hardware Profile**: ${specs.cpu.name} (${specs.cpu.threads}T) • ${specs.gpu.name} (${specs.gpu.vramGB} GB VRAM) • ${specs.ram.totalGB} GB RAM`,
+    `> **Verdict**: \`${resolvedAnalysis.overallTier}\` • **Mode**: \`${optimal.label || activeMode}\`  `,
+    `> **Hardware Profile**: ${specs.cpu.name} (${specs.cpu.threads}T) • ${specs.gpu.name} (${specs.gpu.vramGB} GB VRAM) • ${specs.ram.totalGB} GB RAM  `,
+    `> **Target Display**: ${displayTarget.monitorName || displayTarget.name} (${resX}x${resY} @ ${hz}Hz)`,
     ``,
-    `## 1. Target Resolution & Estimated Performance`,
+    `## 1. Target Display, Mode & Estimated Performance`,
+    `- **Optimization Mode**: **${optimal.label || activeMode}** — ${optimal.summary || ''}`,
     `- **Recommended Resolution**: **${optimal.targetResolution || '1920x1080 (1080p)'}**`,
     `- **Base Preset**: **${optimal.preset || 'High'}**`,
+    `- **Screen FPS (${resX}x${resY} @ ${hz}Hz)**: **${optimal.estimatedScreenFps?.avg || optimal.estimatedFps?.['1080p']?.avg || 60} FPS avg** (${optimal.estimatedScreenFps?.range || '50 - 70 FPS'})`,
+    `- **Frame Pacing / VRR Advice**: ${optimal.fpsCapAdvice || ''}`,
     `- **1080p Estimate**: ${optimal.estimatedFps?.['1080p']?.avg || 60} FPS avg (${optimal.estimatedFps?.['1080p']?.range || '50 - 70 FPS'})`,
     `- **1440p Estimate**: ${optimal.estimatedFps?.['1440p']?.avg || 45} FPS avg (${optimal.estimatedFps?.['1440p']?.range || '38 - 52 FPS'})`,
     `- **4K Estimate**: ${optimal.estimatedFps?.['4K']?.avg || 30} FPS avg (${optimal.estimatedFps?.['4K']?.range || '24 - 35 FPS'})`,
@@ -404,6 +462,14 @@ function exportGameConfigFiles(specs, game, analysis) {
     ``,
     `## 4. Game-Specific Optimization Checklist`,
     tipsSection,
+    ``,
+    `## 5. GPU Driver App Configuration (${drv?.suiteName || 'GPU Driver'} [${drv?.suiteStatus || 'DRIVER_ONLY'}])`,
+    `- **Profile Summary**: ${drv?.summary || ''}`,
+    `- **Storage / Drive Placement**: ${drv?.storageAdvice || ''}`,
+    ``,
+    `| Driver Setting | Recommended Value | Reason |`,
+    `| :--- | :--- | :--- |`,
+    driverRows,
     ``
   ].join('\n');
 

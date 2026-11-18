@@ -1,5 +1,145 @@
 const { scoreCPU, scoreGPU } = require('./hardware');
 
+const STEAM_APP_ID_MAP = {
+  'cyberpunk-2077': '1091500',
+  'black-myth-wukong': '2358720',
+  'elden-ring': '1245620',
+  'counter-strike-2': '730',
+  'baldurs-gate-3': '1086940',
+  'helldivers-2': '553850',
+  'alan-wake-2': null,
+  'red-dead-redemption-2': '1174180',
+  'starfield': '1716740',
+  'hogwarts-legacy': '990080',
+  'forza-horizon-5': '1551360',
+  'ghost-of-tsushima': '2215430',
+  'cod-black-ops-6-warzone': '1938090',
+  'call-of-duty-warzone': '1938090',
+  'apex-legends': '1172470',
+  'valorant': null,
+  'fortnite': null,
+  'minecraft-shaders': null,
+  'minecraft-java': null,
+  'gta-v': '271590',
+  'gtav': '271590',
+  'witcher-3-next-gen': '292030',
+  'the-witcher-3': '292030',
+  'resident-evil-4-remake': '2050650',
+  'resident-evil-4': '2050650',
+  'space-marine-2': '2183900',
+  'stalker-2': '1643320',
+  'monster-hunter-wilds': '2246340',
+  'final-fantasy-xvi': '2515020',
+  'spider-man-remastered': '1817070',
+  'god-of-war-ragnarok': '2322010',
+  'path-of-exile-2': '2694490'
+};
+
+function escapeXml(str = '') {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function getGameMonogram(title = 'Game') {
+  const cleaned = String(title)
+    .replace(/[:\-–—()]/g, ' ')
+    .replace(/\b(the|of|and|edition|remastered|director'?s|cut|next-gen|update|enhanced)\b/gi, ' ')
+    .trim();
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 'GM';
+  if (words.length === 1) {
+    return words[0].slice(0, 3).toUpperCase();
+  }
+  const letters = words.slice(0, 3).map((w) => {
+    if (/^\d+$/.test(w)) return w;
+    return w[0].toUpperCase();
+  });
+  return letters.join('').slice(0, 3);
+}
+
+function getGenrePalette(genre = '', title = '') {
+  const g = `${genre} ${title}`.toLowerCase();
+  if (g.includes('horror') || g.includes('resident evil') || g.includes('alan wake') || g.includes('stalker')) {
+    return { bg1: '#0f172a', bg2: '#3b0764', accent: '#c084fc', glow: '#ef4444' };
+  }
+  if (g.includes('shooter') || g.includes('counter-strike') || g.includes('valorant') || g.includes('apex') || g.includes('call of duty') || g.includes('helldivers')) {
+    return { bg1: '#091526', bg2: '#1e293b', accent: '#38bdf8', glow: '#f59e0b' };
+  }
+  if (g.includes('racing') || g.includes('forza')) {
+    return { bg1: '#0f172a', bg2: '#064e3b', accent: '#10b981', glow: '#38bdf8' };
+  }
+  if (g.includes('rpg') || g.includes('witcher') || g.includes('elden') || g.includes('baldur') || g.includes('wukong') || g.includes('cyberpunk') || g.includes('monster hunter')) {
+    return { bg1: '#0b1120', bg2: '#1e1b4b', accent: '#38bdf8', glow: '#a855f7' };
+  }
+  if (g.includes('sandbox') || g.includes('minecraft') || g.includes('survival')) {
+    return { bg1: '#0a191e', bg2: '#14532d', accent: '#34d399', glow: '#fbbf24' };
+  }
+  return { bg1: '#0a0e17', bg2: '#1e293b', accent: '#38bdf8', glow: '#6366f1' };
+}
+
+function buildFallbackBannerSvg(game = {}) {
+  const title = String(game.title || game.name || 'PC Game');
+  const genre = String(game.genre || 'PC Gaming');
+  const engine = String(game.engine || 'Optimized Profile');
+  const monogram = getGameMonogram(title);
+  const pal = getGenrePalette(genre, title);
+  const shortTitle = title.length > 30 ? `${title.slice(0, 28)}…` : title;
+  const subText = `${genre} • ${engine}`.slice(0, 44);
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 215" width="460" height="215">
+    <defs>
+      <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${pal.bg1}"/>
+        <stop offset="65%" stop-color="${pal.bg2}"/>
+        <stop offset="100%" stop-color="#090d16"/>
+      </linearGradient>
+      <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${pal.accent}"/>
+        <stop offset="100%" stop-color="${pal.glow}"/>
+      </linearGradient>
+    </defs>
+    <rect width="460" height="215" fill="url(#bg)"/>
+    <circle cx="400" cy="40" r="110" fill="${pal.glow}" fill-opacity="0.14"/>
+    <circle cx="85" cy="180" r="95" fill="${pal.accent}" fill-opacity="0.12"/>
+    <path d="M0 175 L460 135 L460 215 L0 215 Z" fill="#050811" fill-opacity="0.55"/>
+    <rect x="24" y="42" width="84" height="84" rx="18" fill="#0b1324" stroke="url(#accentGrad)" stroke-width="2.5"/>
+    <text x="66" y="95" text-anchor="middle" fill="#f8fafc" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="30" font-weight="800" letter-spacing="1">${escapeXml(monogram)}</text>
+    <text x="126" y="82" fill="#f8fafc" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="22" font-weight="800">${escapeXml(shortTitle)}</text>
+    <text x="126" y="109" fill="${pal.accent}" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="13" font-weight="600">${escapeXml(subText)}</text>
+    <rect x="126" y="124" width="112" height="6" rx="3" fill="url(#accentGrad)"/>
+  </svg>`;
+
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function buildFallbackLogoSvg(game = {}) {
+  const title = String(game.title || game.name || 'PC Game');
+  const genre = String(game.genre || 'PC Gaming');
+  const monogram = getGameMonogram(title);
+  const pal = getGenrePalette(genre, title);
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+    <defs>
+      <linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${pal.bg2}"/>
+        <stop offset="100%" stop-color="${pal.bg1}"/>
+      </linearGradient>
+      <linearGradient id="bdr" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${pal.accent}"/>
+        <stop offset="100%" stop-color="${pal.glow}"/>
+      </linearGradient>
+    </defs>
+    <rect x="6" y="6" width="108" height="108" rx="24" fill="url(#lg)" stroke="url(#bdr)" stroke-width="4"/>
+    <text x="60" y="72" text-anchor="middle" fill="#f8fafc" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="36" font-weight="800" letter-spacing="1">${escapeXml(monogram)}</text>
+  </svg>`;
+
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 const GAMES_CATALOG = [
   {
     id: 'cyberpunk-2077',
@@ -717,8 +857,33 @@ function enrichGameScores(game) {
   const recCpuScore = scoreCPU(game.recommended.cpu).score;
   const recGpuScore = scoreGPU(game.recommended.gpu, game.recommended.vramGB).score;
 
+  const rawSteamAppId =
+    game.steamAppId ||
+    (game.appId && /^\d+$/.test(String(game.appId).trim()) ? String(game.appId).trim() : null) ||
+    STEAM_APP_ID_MAP[game.id] ||
+    null;
+  const steamAppId = rawSteamAppId ? String(rawSteamAppId) : null;
+  const fallbackBannerSvg = game.fallbackBannerSvg || buildFallbackBannerSvg(game);
+  const fallbackLogoSvg = game.fallbackLogoSvg || buildFallbackLogoSvg(game);
+  const bannerUrl =
+    game.bannerUrl ||
+    (steamAppId
+      ? `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${steamAppId}/header.jpg`
+      : fallbackBannerSvg);
+  const logoUrl =
+    game.logoUrl ||
+    (steamAppId
+      ? `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${steamAppId}/logo.png`
+      : fallbackLogoSvg);
+
   return {
     ...game,
+    steamAppId,
+    bannerUrl,
+    logoUrl,
+    fallbackBannerSvg,
+    fallbackLogoSvg,
+    monogram: getGameMonogram(game.title || game.name || 'Game'),
     baseRecFps: Number(game.baseRecFps) || 64,
     minimum: {
       ...game.minimum,
@@ -747,9 +912,13 @@ function getAllGenres() {
 }
 
 module.exports = {
+  STEAM_APP_ID_MAP,
   GAMES_CATALOG,
   getAllGames,
   getGameById,
   getAllGenres,
-  enrichGameScores
+  enrichGameScores,
+  buildFallbackBannerSvg,
+  buildFallbackLogoSvg,
+  getGameMonogram
 };

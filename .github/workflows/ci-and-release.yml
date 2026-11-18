@@ -1,0 +1,212 @@
+name: GameCheck CI & CalVer Auto-Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Force publish/update GitHub Release for current version.json'
+        required: false
+        default: 'true'
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build & Verify Windows Native C++ Installer (.exe)
+    runs-on: windows-latest
+    outputs:
+      calver: ${{ steps.version.outputs.calver }}
+      full_version: ${{ steps.version.outputs.full_version }}
+      git_tag: ${{ steps.version.outputs.git_tag }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Read CalVer Metadata from version.json
+        id: version
+        shell: pwsh
+        run: |
+          $v = Get-Content version.json | ConvertFrom-Json
+          "calver=$($v.calver)" >> $env:GITHUB_OUTPUT
+          "full_version=$($v.fullVersion)" >> $env:GITHUB_OUTPUT
+          "git_tag=v$($v.fullVersion)" >> $env:GITHUB_OUTPUT
+          Write-Host "CalVer: $($v.calver) | Full Version: $($v.fullVersion)"
+
+      - name: Install Dependencies
+        shell: pwsh
+        run: |
+          if (Test-Path package-lock.json) { npm ci } else { npm install }
+
+      - name: Compile C++17 Native Display & Driver Probe (Windows)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path bin | Out-Null
+          g++ -O2 -std=c++17 native/rigcheck_probe.cpp -o bin/rigcheck-native-probe.exe -luser32 -lgdi32 -ladvapi32 -static
+          .\bin\rigcheck-native-probe.exe
+
+      - name: Build SHA-256 Live Patch Bundle & Native C++ Windows Installer
+        shell: pwsh
+        run: |
+          node scripts/create-patch.js
+          node scripts/build-installer.js
+
+      - name: Verify Native C++ Windows Setup Executable (--verify & --check-deps)
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path dist -Filter "RigCheck-Optimizer-Setup-*.exe" | Select-Object -First 1
+          if (-not $exe) { throw "Windows .exe installer not found in dist/" }
+          & $exe.FullName --verify
+          & $exe.FullName --check-deps
+
+      - name: Run Full Verification & Unit Test Suite (Windows)
+        shell: pwsh
+        run: node test/run-all.js
+
+      - name: Upload Windows Downloadable Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: RigCheck-Windows-Installer
+          path: |
+            dist/RigCheck-Optimizer-Setup-*.exe
+            dist/RigCheck-App-Payload-*.zip
+            dist/rigcheck-patch-*.rigpatch.json
+            dist/SHA256SUMS.txt
+            dist/release-manifest.json
+          if-no-files-found: error
+
+  build-linux:
+    name: Build & Verify Linux Self-Contained Installer (.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Linux System Dependencies (g++, pciutils, mesa-utils, x11-xserver-utils, unzip)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ pciutils mesa-utils x11-xserver-utils unzip zip
+
+      - name: Install NPM Dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+      - name: Compile C++17 Native Display & Driver Probe (Linux)
+        run: |
+          mkdir -p bin
+          g++ -O2 -std=c++17 native/rigcheck_probe.cpp -o bin/rigcheck-native-probe
+          chmod +x bin/rigcheck-native-probe
+          ./bin/rigcheck-native-probe || true
+
+      - name: Build SHA-256 Live Patch Bundle & Linux Self-Contained Installer
+        run: |
+          node scripts/create-patch.js
+          node scripts/build-installer.js
+
+      - name: Verify Linux Self-Contained Installer (--verify & --check-deps)
+        run: |
+          chmod +x dist/rigcheck-installer-*.sh
+          bash dist/rigcheck-installer-*.sh --verify
+          bash dist/rigcheck-installer-*.sh --check-deps
+
+      - name: Run Full Verification & Unit Test Suite (Linux)
+        run: node test/run-all.js
+
+      - name: Upload Linux Downloadable Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: RigCheck-Linux-Installer
+          path: |
+            dist/rigcheck-installer-*.sh
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish CalVer GitHub Release & Downloadable Binaries
+    needs: [build-windows, build-linux]
+    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))) || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download Windows Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: RigCheck-Windows-Installer
+          path: release-assets
+
+      - name: Download Linux Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: RigCheck-Linux-Installer
+          path: release-assets
+
+      - name: Generate Combined SHA256SUMS.txt & Release Body
+        id: release_prep
+        run: |
+          cd release-assets
+          chmod +x rigcheck-installer-*.sh 2>/dev/null || true
+          sha256sum RigCheck-Optimizer-Setup-*.exe rigcheck-installer-*.sh RigCheck-App-Payload-*.zip rigcheck-patch-*.rigpatch.json > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd ..
+          node -e '
+            const fs = require("fs");
+            const v = JSON.parse(fs.readFileSync("version.json", "utf8"));
+            const sums = fs.readFileSync("release-assets/SHA256SUMS.txt", "utf8").trim();
+            const historyMd = Array.isArray(v.history)
+              ? v.history.map(h => `- **v${h.version}** (\`${h.calver}\` patch \`.${h.patchLevel}\`): ${h.notes}`).join("\n")
+              : `- **v${v.fullVersion}**: ${v.notes}`;
+            const body = [
+              `## RigCheck Optimizer — CalVer Release \`v${v.fullVersion}\` (\`${v.calver}\`)`,
+              "",
+              v.notes,
+              "",
+              "### Direct Downloads (Windows & Linux)",
+              `- **Windows Native C++ Setup (\`.exe\`)**: \`RigCheck-Optimizer-Setup-${v.calver}.exe\` (Self-extracting Win32 C++17 installer with embedded payload, Desktop/Start Menu shortcuts & dependency verifier)`,
+              `- **Linux Self-Contained Installer (\`.sh\`)**: \`rigcheck-installer-${v.calver}.sh\` (Prompts for sudo/package permissions, installs \`pciutils\`/\`mesa-utils\`/\`x11-xserver-utils\`, compiles C++17 probe & creates desktop launcher)`,
+              `- **Portable App Payload (\`.zip\`)**: \`RigCheck-App-Payload-${v.calver}.zip\``,
+              `- **SHA-256 Live Delta Patch (\`.rigpatch.json\`)**: \`rigcheck-patch-${v.calver}.${(v.patchLevel || 0) + 1}.rigpatch.json\``,
+              "",
+              "### Release History",
+              historyMd,
+              "",
+              "### SHA-256 Checksums (\`SHA256SUMS.txt\`)",
+              "```text",
+              sums,
+              "```"
+            ].join("\n");
+            fs.writeFileSync("RELEASE_NOTES.md", body, "utf8");
+          '
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build-windows.outputs.full_version }}
+          name: RigCheck Optimizer v${{ needs.build-windows.outputs.full_version }} (CalVer ${{ needs.build-windows.outputs.calver }})
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          files: |
+            release-assets/RigCheck-Optimizer-Setup-*.exe
+            release-assets/rigcheck-installer-*.sh
+            release-assets/RigCheck-App-Payload-*.zip
+            release-assets/rigcheck-patch-*.rigpatch.json
+            release-assets/SHA256SUMS.txt
+            release-assets/release-manifest.json

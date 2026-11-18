@@ -292,6 +292,19 @@ function filterAndSortGames(games = [], { query = '', genre = '', tier = '', sor
       const fpsB = b.analysis?.optimalConfig?.estimatedFps?.['1080p']?.avg ?? 0;
       return fpsB - fpsA;
     }
+    if (!sortKey || sortKey === 'default' || sortKey === 'activity') {
+      const getActivityRank = (g) => {
+        if (g.isRunning || g.playStatus === 'PLAYING_NOW') return 3;
+        if (g.wasRecentlyPlayed || g.playStatus === 'RECENTLY_PLAYED') return 2;
+        if (g.installed || g.isInstalled || g.playStatus === 'INSTALLED') return 1;
+        return 0;
+      };
+      const actDiff = getActivityRank(b) - getActivityRank(a);
+      if (actDiff !== 0) return actDiff;
+      if ((b.lastPlayedTimestamp || 0) !== (a.lastPlayedTimestamp || 0)) {
+        return (b.lastPlayedTimestamp || 0) - (a.lastPlayedTimestamp || 0);
+      }
+    }
     return 0;
   });
 

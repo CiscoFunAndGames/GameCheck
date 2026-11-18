@@ -1,0 +1,60 @@
+name: CalVer Version Bump & Tag Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_mode:
+        description: 'CalVer bump mode (patch = YYYY.MM.DD.N+1, date = today YYYY.MM.DD)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - date
+      release_notes:
+        description: 'Release notes for this CalVer update'
+        required: false
+        default: 'Automated CalVer release bump via GitHub Actions'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  calver-bump:
+    name: Bump CalVer Version & Push Release Tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run CalVer Bump Script
+        id: bump
+        run: |
+          if [ "${{ inputs.bump_mode }}" = "patch" ]; then
+            node scripts/calver.js bump-patch "${{ inputs.release_notes }}"
+          else
+            node scripts/calver.js bump "${{ inputs.release_notes }}"
+          fi
+          node scripts/calver.js status
+          FULL_VER=$(node -p "require('./version.json').fullVersion")
+          GIT_TAG=$(node -p "require('./version.json').gitTag")
+          echo "full_version=${FULL_VER}" >> $GITHUB_OUTPUT
+          echo "git_tag=${GIT_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Commit Updated version.json & package.json and Push Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add version.json package.json
+          git commit -m "chore(release): bump CalVer to ${{ steps.bump.outputs.full_version }}" || echo "No version changes to commit"
+          git tag -f "${{ steps.bump.outputs.git_tag }}"
+          git push origin HEAD
+          git push origin "${{ steps.bump.outputs.git_tag }}" --force

@@ -2,12 +2,23 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
-const { detectSystemSpecs, scoreCPU, scoreGPU } = require('./hardware');
+const { detectSystemSpecs } = require('./hardware');
 const { getAllGames, getGameById, getAllGenres, enrichGameScores } = require('./games-db');
 const { analyzeGameCompatibility } = require('./analyzer');
 const { scanInstalledGames } = require('./installed-scanner');
 const { parseRawRequirementsText, filterAndSortGames } = require('./steam-lookup');
 const { getPerSettingImpact, exportGameConfigFiles } = require('./config-exporter');
+const {
+  resolveSpecsWithOverrides,
+  getPatchStatus,
+  applyPatch,
+  createPatch,
+  rollbackPatch,
+  getFirewallStatus,
+  requestFirewallAccess,
+  revokeFirewallAccess,
+  searchComponentDeals
+} = require('./ipc-handlers');
 
 const PORT = process.env.PORT || 3040;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -27,32 +38,6 @@ function getInstalled(forceRefresh = false) {
     cachedInstalled = scanInstalledGames();
   }
   return cachedInstalled;
-}
-
-function resolveSpecsWithOverrides(baseSpecs, customHardware) {
-  const customSpecs = JSON.parse(JSON.stringify(baseSpecs));
-  if (!customHardware) return customSpecs;
-
-  if (customHardware.cpuName) {
-    const cpuEval = scoreCPU(customHardware.cpuName, customHardware.cpuThreads || customSpecs.cpu.threads);
-    customSpecs.cpu.name = customHardware.cpuName;
-    customSpecs.cpu.score = cpuEval.score;
-    customSpecs.cpu.cores = cpuEval.estimatedCores;
-  }
-  if (customHardware.gpuName) {
-    const vram = Number(customHardware.vramGB) || customSpecs.gpu.vramGB;
-    const gpuEval = scoreGPU(customHardware.gpuName, vram);
-    customSpecs.gpu.name = customHardware.gpuName;
-    customSpecs.gpu.vramGB = gpuEval.vramGB;
-    customSpecs.gpu.score = gpuEval.score;
-    customSpecs.gpu.vendor = gpuEval.vendor;
-    customSpecs.gpu.rtCapable = gpuEval.rtCapable;
-    customSpecs.gpu.upscaler = gpuEval.upscaler;
-  }
-  if (customHardware.ramGB) {
-    customSpecs.ram.totalGB = Number(customHardware.ramGB);
-  }
-  return customSpecs;
 }
 
 function sendJson(res, statusCode, payload) {
@@ -101,6 +86,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/games' && req.method === 'GET') {
     const specs = getSpecs();
     const installedList = getInstalled();
+    const optimizationMode = parsedUrl.searchParams.get('mode') || 'optimal';
     const installedByCatalogId = new Map();
     for (const inst of installedList) {
       if (inst.matchedCatalogId) {
@@ -112,12 +98,29 @@ const server = http.createServer(async (req, res) => {
       const inst = installedByCatalogId.get(game.id);
       return {
         ...game,
+        steamAppId: (inst && inst.steamAppId) || game.steamAppId || null,
+        bannerUrl: (inst && inst.bannerUrl) || game.bannerUrl,
+        logoUrl: (inst && inst.logoUrl) || game.logoUrl,
+        fallbackBannerSvg: (inst && inst.fallbackBannerSvg) || game.fallbackBannerSvg,
+        fallbackLogoSvg: (inst && inst.fallbackLogoSvg) || game.fallbackLogoSvg,
+        monogram: (inst && inst.monogram) || game.monogram,
         installed: Boolean(inst),
         launcher: inst ? inst.launcher : null,
         drive: inst ? inst.drive : null,
         sizeOnDiskGB: inst ? inst.sizeOnDiskGB : null,
         installDir: inst ? inst.installDir : null,
-        analysis: analyzeGameCompatibility(specs, game)
+        runtime: inst && inst.runtime ? inst.runtime : null,
+        protonVersion: inst && inst.protonVersion ? inst.protonVersion : null,
+        linuxCompatNote: inst && inst.linuxCompatNote ? inst.linuxCompatNote : null,
+        isRunning: Boolean(inst && inst.isRunning),
+        wasRecentlyPlayed: Boolean(inst && inst.wasRecentlyPlayed),
+        playStatus: inst ? inst.playStatus || 'INSTALLED' : 'CATALOG',
+        playStatusLabel: inst ? inst.playStatusLabel || '💾 Installed' : '📚 Catalog',
+        lastPlayedTimestamp: inst ? inst.lastPlayedTimestamp || 0 : 0,
+        analysis: analyzeGameCompatibility(specs, game, {
+          optimizationMode,
+          targetDisplay: specs.display
+        })
       };
     });
 
@@ -140,11 +143,15 @@ const server = http.createServer(async (req, res) => {
   // API: Get locally installed PC games + their compatibility analysis
   if (pathname === '/api/installed' && req.method === 'GET') {
     const refresh = parsedUrl.searchParams.get('refresh') === '1';
+    const optimizationMode = parsedUrl.searchParams.get('mode') || 'optimal';
     const specs = getSpecs(refresh);
     const installedRaw = getInstalled(refresh);
     const games = installedRaw.map((game) => ({
       ...game,
-      analysis: analyzeGameCompatibility(specs, game)
+      analysis: analyzeGameCompatibility(specs, game, {
+        optimizationMode,
+        targetDisplay: specs.display
+      })
     }));
 
     return sendJson(res, 200, {
@@ -164,15 +171,21 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: 'Please paste system requirements text to parse.' });
       }
 
-      const customSpecs = resolveSpecsWithOverrides(getSpecs(), body.customHardware);
+      const optimizationMode = body.optimizationMode || 'optimal';
+      const customSpecs = resolveSpecsWithOverrides(getSpecs(), body.customHardware, body.targetDisplay);
+      const analysisOptions = {
+        optimizationMode,
+        targetDisplay: customSpecs.display
+      };
+
       const game = parseRawRequirementsText(rawText, {
         title: body.title || 'Custom Steam Game',
         genre: body.genre || 'Custom / Steam Spec'
       });
 
-      const analysis = analyzeGameCompatibility(customSpecs, game);
-      const perSettingImpact = getPerSettingImpact(customSpecs, game, analysis);
-      const exportedConfigs = exportGameConfigFiles(customSpecs, game, analysis);
+      const analysis = analyzeGameCompatibility(customSpecs, game, analysisOptions);
+      const perSettingImpact = getPerSettingImpact(customSpecs, game, analysis, analysisOptions);
+      const exportedConfigs = exportGameConfigFiles(customSpecs, game, analysis, analysisOptions);
       analysis.perSettingImpact = perSettingImpact;
       analysis.exportedConfigs = exportedConfigs;
 
@@ -181,7 +194,8 @@ const server = http.createServer(async (req, res) => {
         game,
         analysis,
         perSettingImpact,
-        exportedConfigs
+        exportedConfigs,
+        optimizationMode
       });
     } catch (err) {
       return sendJson(res, 400, { error: err.message });
@@ -192,7 +206,12 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/analyze' && req.method === 'POST') {
     try {
       const body = await parseBody(req);
-      const customSpecs = resolveSpecsWithOverrides(getSpecs(), body.customHardware);
+      const optimizationMode = body.optimizationMode || 'optimal';
+      const customSpecs = resolveSpecsWithOverrides(getSpecs(), body.customHardware, body.targetDisplay);
+      const analysisOptions = {
+        optimizationMode,
+        targetDisplay: customSpecs.display
+      };
 
       let game = null;
       if (body.rawRequirementsText) {
@@ -234,10 +253,28 @@ const server = http.createServer(async (req, res) => {
         }
       } else {
         const targetId = body.gameId || 'cyberpunk-2077';
+        const installedList = getInstalled();
+        const instMatch = installedList.find((g) => g.id === targetId || g.matchedCatalogId === targetId) || null;
         game = getGameById(targetId);
-        if (!game) {
-          const installedList = getInstalled();
-          game = installedList.find((g) => g.id === targetId || g.matchedCatalogId === targetId) || null;
+        if (game && instMatch) {
+          game = {
+            ...game,
+            installed: true,
+            launcher: instMatch.launcher,
+            drive: instMatch.drive,
+            sizeOnDiskGB: instMatch.sizeOnDiskGB,
+            installDir: instMatch.installDir,
+            runtime: instMatch.runtime || null,
+            protonVersion: instMatch.protonVersion || null,
+            linuxCompatNote: instMatch.linuxCompatNote || null,
+            isRunning: Boolean(instMatch.isRunning),
+            wasRecentlyPlayed: Boolean(instMatch.wasRecentlyPlayed),
+            playStatus: instMatch.playStatus || 'INSTALLED',
+            playStatusLabel: instMatch.playStatusLabel || '💾 Installed',
+            lastPlayedTimestamp: instMatch.lastPlayedTimestamp || 0
+          };
+        } else if (!game) {
+          game = instMatch;
         }
       }
 
@@ -245,9 +282,9 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 404, { error: 'Game not found' });
       }
 
-      const analysis = analyzeGameCompatibility(customSpecs, game);
-      const perSettingImpact = getPerSettingImpact(customSpecs, game, analysis);
-      const exportedConfigs = exportGameConfigFiles(customSpecs, game, analysis);
+      const analysis = analyzeGameCompatibility(customSpecs, game, analysisOptions);
+      const perSettingImpact = getPerSettingImpact(customSpecs, game, analysis, analysisOptions);
+      const exportedConfigs = exportGameConfigFiles(customSpecs, game, analysis, analysisOptions);
       analysis.perSettingImpact = perSettingImpact;
       analysis.exportedConfigs = exportedConfigs;
 
@@ -256,8 +293,73 @@ const server = http.createServer(async (req, res) => {
         game,
         analysis,
         perSettingImpact,
-        exportedConfigs
+        exportedConfigs,
+        optimizationMode
       });
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+  }
+
+  // API: Patch Status / Apply / Create / Rollback
+  if (pathname === '/api/patch-status' && req.method === 'GET') {
+    return sendJson(res, 200, getPatchStatus());
+  }
+  if (pathname === '/api/apply-patch' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const result = await applyPatch(body);
+      return sendJson(res, 200, result);
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+  }
+  if (pathname === '/api/create-patch' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const result = await createPatch(body);
+      return sendJson(res, 200, result);
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+  }
+  if (pathname === '/api/rollback-patch' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      const result = await rollbackPatch(body);
+      return sendJson(res, 200, result);
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+  }
+
+  // API: Firewall Status & Outbound Network Permission + Verified Component Price & Deals Finder
+  if (pathname === '/api/firewall-status' && req.method === 'GET') {
+    return sendJson(res, 200, getFirewallStatus());
+  }
+  if (pathname === '/api/firewall-access' && req.method === 'POST') {
+    try {
+      const body = await parseBody(req);
+      if (body && body.revoke === true) {
+        return sendJson(res, 200, revokeFirewallAccess());
+      }
+      const result = await requestFirewallAccess({ ...body, autoApprove: true });
+      return sendJson(res, 200, result);
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+  }
+  if (pathname === '/api/deals' && (req.method === 'POST' || req.method === 'GET')) {
+    try {
+      const body = req.method === 'POST'
+        ? await parseBody(req)
+        : {
+            query: parsedUrl.searchParams.get('q') || parsedUrl.searchParams.get('query') || 'AMD Radeon RX 7600',
+            country: parsedUrl.searchParams.get('country') || 'AR',
+            strictReputation: parsedUrl.searchParams.get('strict') !== '0'
+          };
+      const result = await searchComponentDeals(body);
+      return sendJson(res, 200, result);
     } catch (err) {
       return sendJson(res, 400, { error: err.message });
     }
@@ -281,6 +383,10 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`PC Game Checker running at http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`PC Game Checker running at http://localhost:${PORT}`);
+  });
+}
+
+module.exports = { server, resolveSpecsWithOverrides };

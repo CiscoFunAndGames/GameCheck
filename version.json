@@ -1,0 +1,37 @@
+{
+  "calver": "2026.11.17",
+  "npmVersion": "2026.11.17-2",
+  "patchLevel": 2,
+  "fullVersion": "2026.11.17.2",
+  "gitTag": "v2026.11.17.2",
+  "scheme": "YYYY.MM.DD[.PATCH]",
+  "channel": "stable",
+  "releasedAt": "2026-11-17T22:45:00-03:00",
+  "notes": "CalVer 2026.11.17.2 Release: GameCheck — Pure 100% Native C++17 Desktop GUI Application (Win32 API + GDI+ + ComCtl32 + ComDlg32 on Windows, C++17 on Linux), replacing Electron with a zero-overhead native desktop executable (bin/GameCheck.exe).",
+  "history": [
+    {
+      "version": "2026.11.17.2",
+      "calver": "2026.11.17",
+      "patchLevel": 2,
+      "gitTag": "v2026.11.17.2",
+      "releasedAt": "2026-11-17T22:45:00-03:00",
+      "notes": "Rebuilt as GameCheck — Pure 100% C++17 Native Desktop Application (native/gamecheck_core.hpp + native/gamecheck_desktop.cpp -> bin/GameCheck.exe) using Win32 API + GDI+ + Common Controls + Native Dialogs."
+    },
+    {
+      "version": "2026.11.17.1",
+      "calver": "2026.11.17",
+      "patchLevel": 1,
+      "gitTag": "v2026.11.17.1",
+      "releasedAt": "2026-11-17T22:20:00-03:00",
+      "notes": "Added Pure C++17 Display & Driver Probe (1080p @ 180Hz Display Support), 4 Screen-Aware Optimization Modes, Vertical Game List + Hero Banners & Non-Invasive Play Status, and Country-Aware Price & Verified Deals Finder (Argentina + Firewall Gate + Seller Reputation Shield)."
+    },
+    {
+      "version": "2026.11.17",
+      "calver": "2026.11.17",
+      "patchLevel": 0,
+      "gitTag": "v2026.11.17",
+      "releasedAt": "2026-11-17T20:22:00-03:00",
+      "notes": "Initial Cross-Platform (Windows/Linux) release."
+    }
+  ]
+}

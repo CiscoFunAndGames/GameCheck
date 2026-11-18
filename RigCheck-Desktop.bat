@@ -1,5 +1,9 @@
 @echo off
-title RigCheck Desktop Launcher
+title GameCheck — Pure C++17 Native Desktop Application (Win32/GDI+)
 cd /d "%~dp0"
-powershell -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath 'node' -ArgumentList 'src/desktop.js' -WorkingDirectory '%~dp0' -WindowStyle Hidden"
+if exist "bin\GameCheck.exe" (
+  start "" "bin\GameCheck.exe" %*
+) else (
+  call "%~dp0GameCheck-Desktop.bat" %*
+)
 exit

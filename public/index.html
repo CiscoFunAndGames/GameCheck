@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RigCheck AI — PC Component & Optimal Game Configurator</title>
-  <link rel="stylesheet" href="/styles.css" />
+  <title>GAMECHECK // CYBER.HUD — Native C++17 PC Hardware &amp; Game Configurator</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app-shell">
@@ -12,21 +12,40 @@
       <div class="brand">
         <div class="brand-logo">⚡</div>
         <div>
-          <h1>RigCheck <span class="accent">Optimizer</span></h1>
-          <p class="subtitle">Real-time PC Hardware Scanner • Installed Library Detector • Optimal Graphics & Config Exporter</p>
+          <div class="brand-title-row">
+            <h1>GAMECHECK <span class="accent">// CYBER.HUD</span></h1>
+            <span id="calver-header-badge" class="calver-badge" title="Calendar Versioning (YYYY.MM.DD)">CALVER v2026.11.17.2</span>
+            <div id="runtime-status-pill" class="runtime-pill" title="Runtime &amp; OS Environment">
+              <span id="runtime-mode-text" class="runtime-segment runtime-mode">Detecting Runtime...</span>
+              <span class="runtime-sep">•</span>
+              <span id="runtime-os-text" class="runtime-segment">Detecting OS...</span>
+              <span class="runtime-sep">•</span>
+              <span id="runtime-driver-text" class="runtime-segment">GPU Driver: --</span>
+            </div>
+            <span
+              id="non-invasive-pill"
+              class="non-invasive-pill"
+              title="100% Non-Invasive Guarantee: RigCheck is strictly read-only, uses 0% background CPU when idle, never hooks game processes, never triggers anti-cheat, and never modifies game files without explicit user export."
+            >
+              🛡️ Non-Invasive (Read-Only • 0% Idle CPU)
+            </span>
+          </div>
+          <p class="subtitle">Native C++/C# Driver Display Probe • Cross-Platform Hardware Scanner (Windows &amp; Linux) • 4-Mode Screen-Aware Game Optimizer</p>
         </div>
       </div>
       <div class="header-actions">
-        <button id="btn-toggle-sim" class="btn btn-secondary">🔧 Simulate Upgrade / Edit Specs</button>
-        <button id="btn-custom-game" class="btn btn-secondary">➕ Check Custom / Steam Game</button>
-        <button id="btn-rescan" class="btn btn-primary">🔄 Re-Scan My PC</button>
+        <button id="btn-deals-finder" class="btn btn-secondary btn-deals-action" type="button" title="Search Verified Component Prices &amp; Official Stores by Country (Argentina, US, BR, CL, MX, ES)">💰 Price &amp; Deals Finder</button>
+        <button id="btn-patch-installer" class="btn btn-secondary btn-calver-action" type="button">📦 Patch &amp; Installer</button>
+        <button id="btn-toggle-sim" class="btn btn-secondary" type="button">🔧 Simulate Upgrade / Screen</button>
+        <button id="btn-custom-game" class="btn btn-secondary" type="button">➕ Check Custom / Steam Game</button>
+        <button id="btn-rescan" class="btn btn-primary" type="button">🔄 Rescan Rig &amp; Drives</button>
       </div>
     </header>
 
-    <!-- Detected Hardware Cards -->
+    <!-- Detected Hardware & Display Cards -->
     <section class="hardware-section">
       <div class="section-header">
-        <h2>🖥️ Your Detected PC Components <span id="sim-badge" class="badge badge-warn hidden">SIMULATED OVERRIDE ACTIVE</span></h2>
+        <h2>🖥️ Your Detected PC Components &amp; Primary Screen <span id="sim-badge" class="badge badge-warn hidden">SIMULATED OVERRIDE ACTIVE</span></h2>
         <span id="os-label" class="os-pill">Detecting OS...</span>
       </div>
       <div class="hardware-grid" id="hardware-grid">
@@ -42,6 +61,19 @@
           <div class="hw-meta" id="hw-gpu-meta">--</div>
           <div class="score-bar"><div class="score-fill" id="hw-gpu-bar" style="width:0%"></div></div>
         </div>
+        <div class="hw-card hw-card-display">
+          <div class="hw-label-row">
+            <span class="hw-label">PRIMARY DISPLAY (MONITOR)</span>
+            <span id="spec-display-probe-badge" class="probe-badge" title="Detected via Native Compiled Driver Probe">⚡ Native Driver Probe</span>
+          </div>
+          <div class="hw-value" id="spec-display-name">Scanning Display...</div>
+          <div class="hw-display-pills">
+            <span id="spec-display-res" class="display-spec-pill">1920x1080 (1080p)</span>
+            <span id="spec-display-hz" class="display-spec-pill display-hz-pill">60 Hz</span>
+          </div>
+          <div class="hw-meta" id="spec-display-meta">16:9 • VRR / Adaptive Sync Ready</div>
+          <div class="score-bar"><div class="score-fill" id="hw-display-bar" style="width:0%"></div></div>
+        </div>
         <div class="hw-card">
           <div class="hw-label">SYSTEM MEMORY (RAM)</div>
           <div class="hw-value" id="hw-ram-name">Scanning...</div>
@@ -49,17 +81,17 @@
           <div class="score-bar"><div class="score-fill" id="hw-ram-bar" style="width:0%"></div></div>
         </div>
         <div class="hw-card">
-          <div class="hw-label">PRIMARY STORAGE</div>
+          <div class="hw-label">STORAGE DRIVES &amp; MOUNTS</div>
           <div class="hw-value" id="hw-disk-name">Scanning...</div>
           <div class="hw-meta" id="hw-disk-meta">--</div>
           <div class="score-bar"><div class="score-fill" id="hw-disk-bar" style="width:0%"></div></div>
         </div>
       </div>
 
-      <!-- Optional Hardware Upgrade Simulator Drawer -->
+      <!-- Optional Hardware & Screen Upgrade Simulator Drawer -->
       <div id="simulator-drawer" class="drawer hidden">
-        <h3>🔧 Hardware Upgrade Simulator ("What-If" Mode)</h3>
-        <p class="drawer-desc">Test how your games would run if you swapped your GPU, CPU, or RAM:</p>
+        <h3>🔧 Hardware &amp; Monitor Upgrade Simulator ("What-If" Mode)</h3>
+        <p class="drawer-desc">Test how your games would run if you swapped your GPU, CPU, RAM, or upgraded to a higher-resolution / high-Hz gaming monitor:</p>
         <div class="form-row">
           <label>
             CPU Model
@@ -77,10 +109,23 @@
             System RAM (GB)
             <input type="number" id="sim-ram" min="4" max="128" placeholder="48" />
           </label>
+          <label>
+            Target Display / Monitor Override
+            <select id="sim-display-preset">
+              <option value="">Detected Primary Screen</option>
+              <option value="1920x1080@60">1080p @ 60Hz (FHD Standard)</option>
+              <option value="1920x1080@144">1080p @ 144Hz (FHD High-Refresh)</option>
+              <option value="1920x1080@240">1080p @ 240Hz (FHD Esports)</option>
+              <option value="2560x1440@165">1440p @ 165Hz (QHD Gaming)</option>
+              <option value="3840x2160@120">4K @ 120Hz (UHD HDR)</option>
+            </select>
+          </label>
         </div>
         <div class="drawer-actions">
-          <button id="btn-apply-sim" class="btn btn-primary">Apply Simulated Hardware</button>
-          <button id="btn-reset-sim" class="btn btn-secondary">Reset to My Real PC</button>
+          <button id="btn-apply-sim" class="btn btn-primary" type="button">Apply Simulated Hardware &amp; Screen</button>
+          <button id="btn-find-sim-gpu-deals" class="btn btn-secondary btn-deals-action" type="button">💰 Find Best Verified Deal for Simulated GPU</button>
+          <button id="btn-find-sim-cpu-deals" class="btn btn-secondary" type="button">💰 Find Deal for Simulated CPU</button>
+          <button id="btn-reset-sim" class="btn btn-secondary" type="button">Reset to My Real PC</button>
         </div>
       </div>
 
@@ -100,7 +145,7 @@
             placeholder="MINIMUM:&#10;Processor: Intel Core i5-8400 or AMD Ryzen 5 1600&#10;Memory: 16 GB RAM&#10;Graphics: NVIDIA GeForce GTX 1060 6GB or AMD Radeon RX 580 8GB&#10;Storage: 90 GB available space&#10;&#10;RECOMMENDED:&#10;Processor: Intel Core i7-10700K or AMD Ryzen 7 5800X&#10;Memory: 16 GB RAM&#10;Graphics: NVIDIA GeForce RTX 3070 8GB or AMD Radeon RX 6800&#10;Storage: 90 GB available space (SSD required)"
           ></textarea>
           <div class="drawer-actions" style="margin-top: 10px;">
-            <button id="btn-parse-steam-specs" class="btn btn-primary">⚡ Parse &amp; Analyze Pasted Steam Specs</button>
+            <button id="btn-parse-steam-specs" class="btn btn-primary" type="button">⚡ Parse &amp; Analyze Pasted Steam Specs</button>
             <span id="parse-reqs-status" class="parse-status"></span>
           </div>
         </div>
@@ -118,7 +163,7 @@
           <label>Rec VRAM (GB) <input type="number" id="cg-rec-vram" value="12" /></label>
         </div>
         <div class="drawer-actions">
-          <button id="btn-run-custom-game" class="btn btn-secondary">Analyze Manual Specs</button>
+          <button id="btn-run-custom-game" class="btn btn-secondary" type="button">Analyze Manual Specs</button>
         </div>
       </div>
     </section>
@@ -141,7 +186,7 @@
 
           <!-- Search + Genre Filter Dropdown -->
           <div class="sidebar-controls">
-            <input type="search" id="game-search" placeholder="Search games (e.g. Cyberpunk, Wukong, FFXIV)..." />
+            <input type="search" id="game-search" placeholder="Search games, launchers, Proton..." />
             <div class="sidebar-select-row">
               <select id="game-genre-filter" aria-label="Filter by Genre">
                 <option value="">All Genres</option>
@@ -156,7 +201,7 @@
             </div>
           </div>
         </div>
-        <div id="game-list" class="game-list"></div>
+        <div id="game-list" class="game-list games-list-view"></div>
       </aside>
 
       <section class="analysis-panel" id="analysis-panel">
@@ -165,6 +210,203 @@
     </main>
   </div>
 
-  <script src="/app.js"></script>
+  <!-- CalVer Patch & Native Installer Modal -->
+  <div id="patch-installer-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-calver-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2 id="modal-calver-title">📦 CalVer Release, Live Patcher &amp; Native Installers</h2>
+          <p class="modal-subtitle">Calendar Versioning (YYYY.MM.DD) • SHA-256 Verified Delta Patching (.rigpatch.json) • Windows .EXE &amp; Linux Setup</p>
+        </div>
+        <button id="btn-close-patch-modal" class="btn-modal-close" type="button" aria-label="Close Modal">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- 1. Current CalVer Release Summary -->
+        <div class="modal-section">
+          <div class="modal-section-title">🏷️ Current CalVer Release</div>
+          <div class="calver-stats-grid">
+            <div class="calver-stat-box">
+              <div class="calver-stat-label">CalVer Version</div>
+              <div id="cv-full-version" class="calver-stat-value accent">2026.11.17</div>
+            </div>
+            <div class="calver-stat-box">
+              <div class="calver-stat-label">Patch Level</div>
+              <div id="cv-patch-level" class="calver-stat-value">.0</div>
+            </div>
+            <div class="calver-stat-box">
+              <div class="calver-stat-label">Release Channel</div>
+              <div id="cv-channel" class="calver-stat-value">stable</div>
+            </div>
+            <div class="calver-stat-box">
+              <div class="calver-stat-label">Versioning Scheme</div>
+              <div id="cv-scheme" class="calver-stat-value">YYYY.MM.DD</div>
+            </div>
+          </div>
+          <div id="cv-release-notes" class="calver-notes-strip">
+            Initial CalVer 2026.11.17 Native Desktop Release
+          </div>
+        </div>
+
+        <!-- 2. Live Patch Method (.rigpatch.json) -->
+        <div class="modal-section">
+          <div class="modal-section-header">
+            <div class="modal-section-title">⚡ Live SHA-256 Patch Method (<code>.rigpatch.json</code>)</div>
+            <div class="modal-section-actions">
+              <button id="btn-browse-apply-patch" class="btn btn-xs btn-primary" type="button">📂 Browse &amp; Apply .rigpatch.json</button>
+              <button id="btn-rollback-patch" class="btn btn-xs btn-secondary" type="button">⏪ Rollback Snapshot</button>
+            </div>
+          </div>
+
+          <div id="patch-operation-banner" class="patch-op-banner hidden"></div>
+
+          <!-- Detected Available Patches in dist/patches/ -->
+          <div class="patch-subsection-label">Available Patch Bundles in <code>dist/patches/</code>:</div>
+          <div id="available-patches-list" class="patch-list">
+            <div class="empty-state-sm">Scanning for .rigpatch.json bundles...</div>
+          </div>
+
+          <!-- Generate New Patch Bundle -->
+          <div class="patch-create-box">
+            <div class="patch-subsection-label">🔨 Generate New CalVer Patch Package (<code>dist/patches/</code>):</div>
+            <div class="patch-create-row">
+              <input
+                type="text"
+                id="patch-notes-input"
+                placeholder="Patch release notes (e.g. Added GPU database profiles &amp; Proton fixes)..."
+                value="CalVer hotfix patch bundle with SHA-256 verification"
+              />
+              <button id="btn-create-patch" class="btn btn-primary" type="button">🔨 Build .rigpatch.json</button>
+            </div>
+          </div>
+
+          <!-- Patch History / Backups -->
+          <div class="patch-subsection-label" style="margin-top: 12px;">Applied Patch History &amp; Rollback Snapshots:</div>
+          <div id="patch-history-list" class="patch-history-list">
+            <div class="empty-state-sm">No patches applied yet in this installation.</div>
+          </div>
+        </div>
+
+        <!-- 3. Native Installer Artifacts (Windows .exe & Linux .sh) -->
+        <div class="modal-section">
+          <div class="modal-section-header">
+            <div class="modal-section-title">💿 Native Installer Artifacts (<code>dist/</code>)</div>
+            <button id="btn-open-installer-dir" class="btn btn-xs btn-secondary" type="button">📂 Open Installer Folder</button>
+          </div>
+          <div id="installer-artifacts-list" class="installer-grid">
+            <div class="empty-state-sm">Checking native installer artifacts...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Country-Aware Component Price & Verified Deals Finder Modal -->
+  <div id="deals-finder-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-deals-title">
+    <div class="modal-card modal-card-wide">
+      <div class="modal-header">
+        <div>
+          <h2 id="modal-deals-title">🌎 Country-Aware Component Price &amp; Verified Deals Finder</h2>
+          <p class="modal-subtitle">
+            🇦🇷 Argentina (HardGamers, Compra Gamer, Maximus, Venex, FullH4rd, Mexx, ML Oficial) + US, BR, CL, MX &amp; ES • Anti-Scam Reputation Filter • Firewall Gate
+          </p>
+        </div>
+        <button id="btn-close-deals-modal" class="btn-modal-close" type="button" aria-label="Close Deals Finder Modal">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- 1. Firewall & Outbound Network Security Bar -->
+        <div id="firewall-security-bar" class="firewall-security-bar is-blocked">
+          <div class="firewall-status-left">
+            <span id="firewall-status-pill" class="firewall-pill pill-blocked">🔒 Firewall Gate: Blocked (Offline Safe)</span>
+            <span class="firewall-status-desc">
+              Strict Outbound HTTPS (Port 443 Read-Only) Allowlist • Zero background telemetry • Blocks unverified hosts
+            </span>
+          </div>
+          <div class="firewall-status-actions">
+            <button id="btn-grant-firewall" class="btn btn-xs btn-primary" type="button">🛡️ Grant Firewall Access (HTTPS)</button>
+            <button id="btn-os-firewall-prompt" class="btn btn-xs btn-secondary" type="button">🪟 OS Security Prompt</button>
+            <button id="btn-revoke-firewall" class="btn btn-xs btn-secondary hidden" type="button">🔒 Revoke Access</button>
+          </div>
+        </div>
+
+        <!-- Interactive Firewall Permission Confirmation Prompt (shown when not yet authorized) -->
+        <div id="firewall-consent-banner" class="firewall-consent-banner">
+          <div class="firewall-consent-title">🛡️ Outbound Firewall &amp; Network Access Confirmation Required</div>
+          <p class="firewall-consent-text">
+            To search live component prices and verified official retailers in your country, <strong>RigCheck Optimizer</strong> requests permission to open read-only outbound <code>HTTPS (TCP Port 443)</code> connections to our verified store allowlist (<code>hardgamers.com.ar</code>, <code>compragamer.com</code>, <code>maximus.com.ar</code>, <code>venex.com.ar</code>, <code>fullh4rd.com.ar</code>, <code>mexx.com.ar</code>, <code>api.mercadolibre.com</code>, etc.).
+          </p>
+          <div class="firewall-consent-actions">
+            <button id="btn-confirm-firewall-search" class="btn btn-primary" type="button">✅ Authorize Outbound HTTPS &amp; Search Deals</button>
+            <button id="btn-confirm-firewall-os-dialog" class="btn btn-secondary" type="button">🪟 Verify via Native OS Firewall Dialog</button>
+          </div>
+        </div>
+
+        <!-- 2. Country & Component Search Controls -->
+        <div class="modal-section">
+          <div class="deals-search-grid">
+            <label class="deals-field">
+              <span>🌎 Country &amp; Local Currency</span>
+              <select id="deals-country-select">
+                <option value="AR" selected>🇦🇷 Argentina (ARS $ — HardGamers / Compra Gamer / Maximus / Venex / FullH4rd)</option>
+                <option value="US">🇺🇸 United States (USD $ — PCPartPicker / Micro Center / Newegg Direct / Best Buy)</option>
+                <option value="BR">🇧🇷 Brasil (BRL R$ — KaBuM! / Pichau / Terabyteshop / ML Oficial)</option>
+                <option value="CL">🇨🇱 Chile (CLP $ — SoloTodo / PC Factory / SP Digital)</option>
+                <option value="MX">🇲🇽 México (MXN $ — DDTech / CyberPuerta / ML Oficial)</option>
+                <option value="ES">🇪🇸 España / EU (EUR € — PcComponentes / Coolmod / Geizhals EU)</option>
+              </select>
+            </label>
+            <label class="deals-field deals-field-query">
+              <span>🔍 PC Component (GPU, CPU, RAM, Monitor)</span>
+              <div class="deals-query-row">
+                <input
+                  type="text"
+                  id="deals-query-input"
+                  value="AMD Radeon RX 7600"
+                  placeholder="e.g. AMD Radeon RX 7600, RTX 4070 Super, Ryzen 7 7800X3D..."
+                />
+                <button id="btn-search-deals" class="btn btn-primary" type="button">🔍 Search Verified Deals</button>
+              </div>
+            </label>
+          </div>
+
+          <!-- Quick-Pick Component Chips -->
+          <div class="deals-quick-chips-row">
+            <span class="deals-chips-label">⚡ Quick-Pick Upgrades:</span>
+            <button type="button" class="deals-chip" data-query="AMD Radeon RX 7600">AMD Radeon RX 7600</button>
+            <button type="button" class="deals-chip" data-query="AMD Radeon RX 7800 XT">AMD Radeon RX 7800 XT</button>
+            <button type="button" class="deals-chip" data-query="NVIDIA RTX 4060">NVIDIA RTX 4060</button>
+            <button type="button" class="deals-chip" data-query="NVIDIA RTX 4070 Super">NVIDIA RTX 4070 Super</button>
+            <button type="button" class="deals-chip" data-query="AMD Ryzen 7 5700X3D">AMD Ryzen 7 5700X3D</button>
+            <button type="button" class="deals-chip" data-query="AMD Ryzen 7 7800X3D">AMD Ryzen 7 7800X3D</button>
+          </div>
+
+          <!-- Strict Seller Reputation Shield Toggle -->
+          <div class="deals-reputation-toggle-row">
+            <label class="reputation-checkbox-label">
+              <input type="checkbox" id="deals-strict-reputation" checked />
+              <span>🛡️ <strong>Strict Seller Reputation &amp; Anti-Scam Shield:</strong> Automatically block sellers with &lt;90% positive ratings, &lt;50 sales, unverified used/mined GPUs, or suspicious scam price anomalies</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- 3. Reputation Audit Summary & Anti-Scam Buyer Safety Tips -->
+        <div id="deals-reputation-banner" class="deals-reputation-banner hidden"></div>
+        <div id="deals-safety-tips" class="deals-safety-tips hidden"></div>
+
+        <!-- 4. Verified Deals & Official Retailer Cards -->
+        <div id="deals-results-grid" class="deals-results-grid">
+          <div class="empty-state-sm">
+            Authorize Firewall Outbound HTTPS access above and click <strong>"Search Verified Deals"</strong> to compare prices from verified stores.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <script src="app.js"></script>
 </body>
 </html>
