@@ -1,0 +1,52 @@
+{
+  "name": "pc-game-checker",
+  "version": "2026.11.17-2",
+  "description": "GameCheck — Pure C++17 Native Desktop Application (Win32/GDI+ & Linux) for PC Hardware Detection, 'Can I Run It?' Analysis, and Screen-Aware Game Optimization",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "bin\\GameCheck.exe",
+    "desktop": "bin\\GameCheck.exe",
+    "smoke": "bin\\GameCheck.exe --smoke-test",
+    "web": "node src/server.js",
+    "check": "node src/cli.js",
+    "test": "node test/run-all.js",
+    "version:status": "node scripts/calver.js status",
+    "version:bump": "node scripts/calver.js bump",
+    "version:patch": "node scripts/calver.js bump-patch",
+    "patch:create": "node scripts/create-patch.js",
+    "patch:apply": "node scripts/create-patch.js --apply",
+    "patch:rollback": "node scripts/create-patch.js --rollback",
+    "installer:build": "node scripts/build-installer.js",
+    "build:native": "g++ -O2 -std=c++17 native/rigcheck_probe.cpp -o bin/rigcheck-native-probe.exe -luser32 -lgdi32 -ladvapi32 -static",
+    "build:gui": "g++ -O2 -std=c++17 native/gamecheck_desktop.cpp -o bin/GameCheck.exe -lgdiplus -luxtheme -lcomctl32 -lcomdlg32 -lshell32 -luser32 -lgdi32 -ladvapi32 -lole32 -luuid -static -s",
+    "build:core-test": "g++ -O2 -std=c++17 native/test_core.cpp -o bin/test-gamecheck-core.exe -luser32 -lgdi32 -ladvapi32 -lshell32 -static -s"
+  },
+  "build": {
+    "appId": "com.gamecheck.native",
+    "productName": "GameCheck",
+    "files": [
+      "bin/**/*",
+      "native/**/*",
+      "src/**/*",
+      "public/**/*",
+      "version.json",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility"
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.3.4"
+  }
+}

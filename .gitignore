@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Environment & Secrets
+.env
+.env.*
+*.env
+
+# Local Backups, Logs & Temporary Dumps
+.rigcheck-backups/
+dist/backups/
+dist/_stage_payload/
+dist/_installer*
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*hw-dump*.json
+*hardware-dump*.json
+*sysinfo-dump*.txt
+
+# OS & Editor Metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*~
+.vscode/
+.idea/
