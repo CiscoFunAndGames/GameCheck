@@ -52,4 +52,4 @@ git push -u origin feature/<short-description>
   1. Auto-bump the version (`YYYY.MM.DD[.PATCH]`).
   2. Compile and test both **Windows** and **Linux** native binaries.
   3. Publish the **GitHub Release** with downloadable installers and `SHA256SUMS.txt`.
-- After `dev` → `main` completes, sync `dev` with `main` (`git fetch origin && git checkout dev && git merge origin/main && git push origin dev`) so the auto-bumped version commit stays in sync.
+- After `dev` → `main` completes, the CI workflow automatically merges `main` back into `dev` so `dev` always stays up to date with every release and version bump. When working locally, also sync `dev` with `origin/main` if needed (`git fetch origin && git checkout dev && git merge origin/main && git push origin dev`).
