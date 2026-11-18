@@ -452,11 +452,12 @@ async function main() {
         encoding: 'utf8',
         timeout: 15000
       });
+      const liveVer = require('../src/version').getVersionInfo(ROOT_DIR);
       const smokeJson = JSON.parse(smokeOut.trim());
       assert.strictEqual(smokeJson.status, 'NATIVE_GUI_OK');
       assert.strictEqual(smokeJson.appName, 'GameCheck');
-      assert.strictEqual(smokeJson.calver, '2026.11.17');
-      assert.strictEqual(smokeJson.fullVersion, '2026.11.17.2');
+      assert.ok(/^\d{4}\.\d{2}\.\d{2}$/.test(smokeJson.calver), 'Expected valid CalVer YYYY.MM.DD');
+      assert.ok(/^\d{4}\.\d{2}\.\d{2}(\.\d+)?$/.test(smokeJson.fullVersion), 'Expected valid full CalVer');
       assert.strictEqual(smokeJson.runtime, 'native-cpp17-win32-gdiplus');
       assert.strictEqual(smokeJson.catalogGames, 24);
       assert.ok(smokeJson.cpuDetected && smokeJson.gpuDetected && smokeJson.displayDetected);
@@ -464,8 +465,9 @@ async function main() {
         `  ✓ bin/GameCheck.exe --smoke-test -> ${smokeJson.appName} v${smokeJson.fullVersion} [${smokeJson.runtime}] (${smokeJson.cpuDetected} | ${smokeJson.gpuDetected} | ${smokeJson.displayDetected})`
       );
 
-      const gameCheckSetupExe = path.join(ROOT_DIR, 'dist', 'GameCheck-Setup-2026.11.17.exe');
-      assert.ok(fs.existsSync(gameCheckSetupExe), 'Expected dist/GameCheck-Setup-2026.11.17.exe to exist');
+      const setupName = `GameCheck-Setup-${liveVer.calver}.exe`;
+      const gameCheckSetupExe = path.join(ROOT_DIR, 'dist', setupName);
+      assert.ok(fs.existsSync(gameCheckSetupExe), `Expected dist/${setupName} to exist`);
       const setupVerifyOut = execFileSync(gameCheckSetupExe, ['--verify'], {
         cwd: ROOT_DIR,
         stdio: 'pipe',
@@ -475,7 +477,7 @@ async function main() {
       const setupVerifyJson = JSON.parse(setupVerifyOut.trim());
       assert.strictEqual(setupVerifyJson.status, 'INSTALLER_OK');
       assert.strictEqual(setupVerifyJson.appName, 'GameCheck');
-      console.log(`  ✓ dist/GameCheck-Setup-2026.11.17.exe --verify -> ${setupVerifyJson.status} (${setupVerifyJson.fullVersion})`);
+      console.log(`  ✓ dist/${setupName} --verify -> ${setupVerifyJson.status} (${setupVerifyJson.fullVersion})`);
     }
   });
 

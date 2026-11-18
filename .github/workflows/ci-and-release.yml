@@ -101,6 +101,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path bin | Out-Null
           g++ -O2 -std=c++17 native/rigcheck_probe.cpp -o bin/rigcheck-native-probe.exe -luser32 -lgdi32 -ladvapi32 -static -s
+          g++ -O2 -std=c++17 native/test_core.cpp -o bin/test-gamecheck-core.exe -luser32 -lgdi32 -ladvapi32 -lshell32 -static -s
           g++ -O2 -std=c++17 native/gamecheck_desktop.cpp -o bin/GameCheck.exe -lgdiplus -luxtheme -lcomctl32 -lcomdlg32 -lshell32 -luser32 -lgdi32 -ladvapi32 -lole32 -luuid -static -s
           .\bin\rigcheck-native-probe.exe
           .\bin\GameCheck.exe --smoke-test
