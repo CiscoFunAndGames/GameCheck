@@ -3239,17 +3239,17 @@ static void refreshLinuxDetailsPane() {
 
     std::ostringstream oss;
     oss << game.title << " (" << game.genre << " | " << game.engine << ")\n";
-    oss << (g_gtkApp.isSpanish ? "Estado: " : "Status: ") << ga.status
+    oss << (g_gtkApp.isSpanish ? "Estado: " : "Status: ") << ga.verdictBadge
         << "  |  " << (g_gtkApp.isSpanish ? "FPS Est. Pantalla: " : "Est. Screen FPS: ")
-        << ga.estimatedScreenFps.avg << " FPS (min " << ga.estimatedScreenFps.min
-        << " / max " << ga.estimatedScreenFps.max << ")\n";
+        << ga.estimatedScreenFps.avg << " FPS (min " << ga.estimatedScreenFps.low
+        << " / max " << ga.estimatedScreenFps.high << ")\n";
     oss << (g_gtkApp.isSpanish ? "Modo: " : "Mode: ") << ga.modeLabel
         << "  |  " << ga.syncAdvice << "\n";
     oss << "------------------------------------------------------------\n";
     oss << (g_gtkApp.isSpanish ? "AJUSTES RECOMENDADOS EN JUEGO:\n" : "RECOMMENDED IN-GAME SETTINGS:\n");
     for (const auto& s : ga.settingImpacts) {
         oss << "  • " << s.setting << ": " << s.recommendedValue
-            << "  (" << s.fpsGainPct << ", VRAM: " << s.vramImpact << ")\n";
+            << "  (+" << s.fpsGainPercent << "% FPS, VRAM: ~" << s.vramImpactMB << " MB)\n";
     }
     oss << "\n------------------------------------------------------------\n";
     oss << (g_gtkApp.isSpanish ? "ESCALADO Y RESOLUCIÓN INTERNA:\n" : "UPSCALING & RESOLUTION MATH:\n");
@@ -3263,7 +3263,7 @@ static void refreshLinuxDetailsPane() {
     oss << (g_gtkApp.isSpanish ? "CONFIGURACIÓN DE DRIVER GPU (" : "GPU DRIVER APP SETTINGS (") << drv.suiteName << "):\n";
     for (const auto& ds : drv.settings) {
         oss << "  • " << ds.setting << ": " << ds.recommendedValue << "\n"
-            << "    " << ds.why << "\n";
+            << "    " << ds.reason << "\n";
     }
 
     GtkTextBuffer* buf = gtk_text_view_get_buffer(g_gtkApp.detailsView);
@@ -3303,7 +3303,7 @@ static void populateLinuxGameList() {
         gtk_list_store_append(g_gtkApp.listStore, &iter);
         gtk_list_store_set(g_gtkApp.listStore, &iter,
                            0, titleStr.c_str(),
-                           1, ga.status.c_str(),
+                           1, ga.verdictBadge.c_str(),
                            2, fpsStr.c_str(),
                            3, static_cast<guint>(i),
                            -1);
