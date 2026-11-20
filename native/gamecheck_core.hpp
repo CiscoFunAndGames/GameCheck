@@ -22,6 +22,8 @@
 #endif
 #include <windows.h>
 #include <tlhelp32.h>
+#include <winhttp.h>
+#include <shellapi.h>
 #else
 #include <sys/statvfs.h>
 #include <unistd.h>
@@ -3431,6 +3433,598 @@ inline std::string buildSmokeTestJson(const SystemSpecs& specs, const std::vecto
         << "\"scanDurationMs\":" << std::fixed << std::setprecision(2) << specs.scanDurationMs
         << "}";
     return oss.str();
+}
+
+// =============================================================================
+// 11. CalVer Comparison, SHA-256 Patch Verification & WinHTTP Auto-Updater
+// =============================================================================
+
+struct CalVerParts {
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    int patch = 0;
+    bool valid = false;
+};
+
+inline CalVerParts parseCalVerStr(std::string s) {
+    CalVerParts out;
+    // Trim whitespace
+    size_t a = s.find_first_not_of(" \t\r\n");
+    if (a == std::string::npos) return out;
+    size_t b = s.find_last_not_of(" \t\r\n");
+    s = s.substr(a, b - a + 1);
+    if (!s.empty() && (s[0] == 'v' || s[0] == 'V')) {
+        s = s.substr(1);
+    }
+    std::vector<int> nums;
+    std::stringstream ss(s);
+    std::string tok;
+    while (std::getline(ss, tok, '.')) {
+        if (tok.empty()) return out;
+        for (char c : tok) {
+            if (c < '0' || c > '9') return out;
+        }
+        try {
+            nums.push_back(std::stoi(tok));
+        } catch (...) {
+            return out;
+        }
+    }
+    if (nums.size() < 3 || nums.size() > 4) return out;
+    out.year = nums[0];
+    out.month = nums[1];
+    out.day = nums[2];
+    out.patch = (nums.size() == 4) ? nums[3] : 0;
+    out.valid = (out.year >= 2000 && out.month >= 1 && out.month <= 12 && out.day >= 1 && out.day <= 31);
+    return out;
+}
+
+inline int compareCalVerStr(const std::string& a, const std::string& b) {
+    CalVerParts pa = parseCalVerStr(a);
+    CalVerParts pb = parseCalVerStr(b);
+    if (!pa.valid && !pb.valid) return 0;
+    if (!pa.valid) return -1;
+    if (!pb.valid) return 1;
+    if (pa.year != pb.year) return pa.year < pb.year ? -1 : 1;
+    if (pa.month != pb.month) return pa.month < pb.month ? -1 : 1;
+    if (pa.day != pb.day) return pa.day < pb.day ? -1 : 1;
+    if (pa.patch != pb.patch) return pa.patch < pb.patch ? -1 : 1;
+    return 0;
+}
+
+inline std::string sha256Hex(const std::string& data) {
+    static constexpr uint32_t K[64] = {
+        0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+        0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+        0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+        0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+        0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+        0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+        0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+        0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+    };
+    auto rotr = [](uint32_t x, uint32_t n) -> uint32_t { return (x >> n) | (x << (32 - n)); };
+    uint32_t h[8] = {
+        0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,
+        0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19
+    };
+
+    std::vector<uint8_t> msg(data.begin(), data.end());
+    uint64_t bitLen = static_cast<uint64_t>(msg.size()) * 8ULL;
+    msg.push_back(0x80);
+    while ((msg.size() % 64) != 56) msg.push_back(0x00);
+    for (int i = 7; i >= 0; --i) {
+        msg.push_back(static_cast<uint8_t>((bitLen >> (i * 8)) & 0xFF));
+    }
+
+    for (size_t chunk = 0; chunk < msg.size(); chunk += 64) {
+        uint32_t w[64] = {};
+        for (int i = 0; i < 16; ++i) {
+            w[i] = (static_cast<uint32_t>(msg[chunk + i * 4]) << 24) |
+                   (static_cast<uint32_t>(msg[chunk + i * 4 + 1]) << 16) |
+                   (static_cast<uint32_t>(msg[chunk + i * 4 + 2]) << 8) |
+                   static_cast<uint32_t>(msg[chunk + i * 4 + 3]);
+        }
+        for (int i = 16; i < 64; ++i) {
+            uint32_t s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
+            uint32_t s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+        }
+        uint32_t a = h[0], b = h[1], c = h[2], d = h[3];
+        uint32_t e = h[4], f = h[5], g = h[6], hh = h[7];
+        for (int i = 0; i < 64; ++i) {
+            uint32_t S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+            uint32_t ch = (e & f) ^ ((~e) & g);
+            uint32_t temp1 = hh + S1 + ch + K[i] + w[i];
+            uint32_t S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+            uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
+            uint32_t temp2 = S0 + maj;
+            hh = g; g = f; f = e; e = d + temp1;
+            d = c; c = b; b = a; a = temp1 + temp2;
+        }
+        h[0] += a; h[1] += b; h[2] += c; h[3] += d;
+        h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+    }
+
+    std::ostringstream oss;
+    oss << std::hex << std::setfill('0');
+    for (int i = 0; i < 8; ++i) {
+        oss << std::setw(8) << h[i];
+    }
+    return oss.str();
+}
+
+namespace detail {
+
+inline bool parseJsonStringAt(const std::string& json, size_t quotePos, std::string& out, size_t& endPos) {
+    if (quotePos >= json.size() || json[quotePos] != '"') return false;
+    out.clear();
+    size_t i = quotePos + 1;
+    while (i < json.size()) {
+        char c = json[i++];
+        if (c == '"') {
+            endPos = i;
+            return true;
+        }
+        if (c == '\\' && i < json.size()) {
+            char esc = json[i++];
+            if (esc == '"' || esc == '\\' || esc == '/') out.push_back(esc);
+            else if (esc == 'n') out.push_back('\n');
+            else if (esc == 'r') out.push_back('\r');
+            else if (esc == 't') out.push_back('\t');
+            else if (esc == 'b') out.push_back('\b');
+            else if (esc == 'f') out.push_back('\f');
+            else if (esc == 'u' && i + 4 <= json.size()) {
+                unsigned int cp = 0;
+                std::stringstream ss;
+                ss << std::hex << json.substr(i, 4);
+                ss >> cp;
+                i += 4;
+                if (cp < 0x80) out.push_back(static_cast<char>(cp));
+                else if (cp < 0x800) {
+                    out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+                    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+                } else {
+                    out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+                    out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+                    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+                }
+            } else {
+                out.push_back(esc);
+            }
+        } else {
+            out.push_back(c);
+        }
+    }
+    return false;
+}
+
+inline std::string extractJsonStringField(const std::string& json, const std::string& key, size_t startPos = 0) {
+    std::string needle = "\"" + key + "\"";
+    size_t pos = json.find(needle, startPos);
+    while (pos != std::string::npos) {
+        size_t colon = json.find_first_not_of(" \t\r\n", pos + needle.size());
+        if (colon != std::string::npos && json[colon] == ':') {
+            size_t valStart = json.find_first_not_of(" \t\r\n", colon + 1);
+            if (valStart != std::string::npos && json[valStart] == '"') {
+                std::string val;
+                size_t endPos = 0;
+                if (parseJsonStringAt(json, valStart, val, endPos)) {
+                    return val;
+                }
+            }
+        }
+        pos = json.find(needle, pos + needle.size());
+    }
+    return "";
+}
+
+inline size_t extractJsonSizeField(const std::string& json, const std::string& key, size_t startPos = 0) {
+    std::string needle = "\"" + key + "\"";
+    size_t pos = json.find(needle, startPos);
+    if (pos == std::string::npos) return 0;
+    size_t colon = json.find(':', pos + needle.size());
+    if (colon == std::string::npos) return 0;
+    size_t valStart = json.find_first_not_of(" \t\r\n", colon + 1);
+    if (valStart == std::string::npos) return 0;
+    size_t valEnd = valStart;
+    while (valEnd < json.size() && json[valEnd] >= '0' && json[valEnd] <= '9') ++valEnd;
+    if (valEnd == valStart) return 0;
+    try {
+        return static_cast<size_t>(std::stoull(json.substr(valStart, valEnd - valStart)));
+    } catch (...) {
+        return 0;
+    }
+}
+
+inline bool isSafeRelPath(const std::string& rel) {
+    if (rel.empty() || rel[0] == '/' || rel[0] == '\\') return false;
+    if (rel.size() >= 2 && rel[1] == ':') return false;
+    if (rel.find("..") != std::string::npos) return false;
+    return true;
+}
+
+struct RigPatchFileEntry {
+    std::string relativePath;
+    std::string sha256;
+    size_t sizeBytes = 0;
+    std::string content;
+};
+
+struct RigPatchBundle {
+    bool valid = false;
+    std::string targetVersion;
+    std::string notes;
+    std::string bundleSha256;
+    std::vector<RigPatchFileEntry> files;
+};
+
+inline RigPatchBundle parseAndVerifyRigPatch(const std::string& rawJson) {
+    RigPatchBundle b;
+    if (rawJson.empty()) return b;
+    b.targetVersion = extractJsonStringField(rawJson, "targetVersion");
+    b.notes = extractJsonStringField(rawJson, "notes");
+    b.bundleSha256 = extractJsonStringField(rawJson, "bundleSha256");
+    if (!parseCalVerStr(b.targetVersion).valid || b.bundleSha256.empty()) return b;
+
+    size_t filesPos = rawJson.find("\"files\"");
+    if (filesPos == std::string::npos) return b;
+    size_t arrStart = rawJson.find('[', filesPos);
+    if (arrStart == std::string::npos) return b;
+
+    size_t cur = arrStart + 1;
+    while (cur < rawJson.size()) {
+        size_t objStart = rawJson.find('{', cur);
+        size_t arrEnd = rawJson.find(']', cur);
+        if (objStart == std::string::npos || (arrEnd != std::string::npos && arrEnd < objStart)) break;
+
+        // Find matching '}' respecting strings
+        size_t p = objStart + 1;
+        int depth = 1;
+        while (p < rawJson.size() && depth > 0) {
+            if (rawJson[p] == '"') {
+                std::string dummy;
+                size_t endP = p + 1;
+                if (parseJsonStringAt(rawJson, p, dummy, endP)) p = endP;
+                else ++p;
+            } else if (rawJson[p] == '{') {
+                ++depth; ++p;
+            } else if (rawJson[p] == '}') {
+                --depth; ++p;
+            } else {
+                ++p;
+            }
+        }
+        if (depth != 0) return b;
+
+        std::string objStr = rawJson.substr(objStart, p - objStart);
+        RigPatchFileEntry fe;
+        fe.relativePath = extractJsonStringField(objStr, "relativePath");
+        fe.sha256 = extractJsonStringField(objStr, "sha256");
+        fe.sizeBytes = extractJsonSizeField(objStr, "sizeBytes");
+        fe.content = extractJsonStringField(objStr, "content");
+
+        if (!isSafeRelPath(fe.relativePath)) return b;
+        if (fe.content.size() != fe.sizeBytes) return b;
+        if (sha256Hex(fe.content) != fe.sha256) return b;
+
+        b.files.push_back(std::move(fe));
+        cur = p;
+    }
+
+    if (b.files.empty()) return b;
+
+    // Verify canonical bundleSha256 signature
+    std::vector<RigPatchFileEntry> sorted = b.files;
+    std::sort(sorted.begin(), sorted.end(), [](const RigPatchFileEntry& x, const RigPatchFileEntry& y) {
+        return x.relativePath < y.relativePath;
+    });
+    std::string canonical = "version:" + b.targetVersion;
+    for (const auto& f : sorted) {
+        canonical += "\n" + f.relativePath + ":" + f.sha256 + ":" + std::to_string(f.sizeBytes);
+    }
+    if (sha256Hex(canonical) != b.bundleSha256) return b;
+
+    b.valid = true;
+    return b;
+}
+
+#ifdef _WIN32
+inline bool winHttpGetToMemory(const std::wstring& url, std::string& bodyOut, int timeoutMs = 3000) {
+    bodyOut.clear();
+    URL_COMPONENTSW uc = {};
+    uc.dwStructSize = sizeof(uc);
+    wchar_t hostBuf[256] = {};
+    wchar_t pathBuf[2048] = {};
+    uc.lpszHostName = hostBuf;
+    uc.dwHostNameLength = 256;
+    uc.lpszUrlPath = pathBuf;
+    uc.dwUrlPathLength = 2048;
+
+    if (!WinHttpCrackUrl(url.c_str(), static_cast<DWORD>(url.size()), 0, &uc)) {
+        return false;
+    }
+
+    HINTERNET hSession = WinHttpOpen(L"GameCheck-Updater/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                     WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) return false;
+
+    WinHttpSetTimeouts(hSession, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
+
+    HINTERNET hConnect = WinHttpConnect(hSession, hostBuf, uc.nPort, 0);
+    if (!hConnect) {
+        WinHttpCloseHandle(hSession);
+        return false;
+    }
+
+    DWORD flags = (uc.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", pathBuf, nullptr,
+                                            WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!hRequest) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return false;
+    }
+
+    // Allow redirects for GitHub release asset downloads
+    DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
+    WinHttpSetOption(hRequest, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
+
+    const wchar_t* headers = L"Accept: application/vnd.github+json\r\nUser-Agent: GameCheck-Updater\r\n";
+    BOOL ok = WinHttpSendRequest(hRequest, headers, static_cast<DWORD>(-1), WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+              WinHttpReceiveResponse(hRequest, nullptr);
+
+    if (ok) {
+        DWORD statusCode = 0;
+        DWORD scSize = sizeof(statusCode);
+        WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                            WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &scSize, WINHTTP_NO_HEADER_INDEX);
+        if (statusCode >= 200 && statusCode < 300) {
+            DWORD avail = 0;
+            while (WinHttpQueryDataAvailable(hRequest, &avail) && avail > 0) {
+                std::string chunk(avail, '\0');
+                DWORD readBytes = 0;
+                if (WinHttpReadData(hRequest, &chunk[0], avail, &readBytes) && readBytes > 0) {
+                    bodyOut.append(chunk.data(), readBytes);
+                } else {
+                    break;
+                }
+            }
+        } else {
+            ok = FALSE;
+        }
+    }
+
+    WinHttpCloseHandle(hRequest);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+    return ok == TRUE && !bodyOut.empty();
+}
+#endif // _WIN32
+
+} // namespace detail
+
+struct UpdateCheckResult {
+    bool checked = false;
+    bool updateAvailable = false;
+    bool isLocalPatch = false;
+    bool isBinaryInstaller = false;
+    bool applied = false;
+    bool restartRequired = false;
+    std::string currentVersion;
+    std::string latestVersion;
+    std::string source;
+    std::string localPatchPath;
+    std::string downloadUrl;
+    std::string releaseNotes;
+    std::string statusMessage;
+    std::string errorMessage;
+};
+
+inline UpdateCheckResult checkForAppUpdates(const std::string& currentVersion, const std::string& appDir) {
+    UpdateCheckResult res;
+    res.currentVersion = currentVersion;
+    res.latestVersion = currentVersion;
+    res.statusMessage = "Up to date";
+
+    namespace fs = std::filesystem;
+    std::error_code ec;
+
+    // 1. Scan local <appDir>/patches/*.rigpatch.json and <appDir>/dist/patches/*.rigpatch.json
+    std::vector<fs::path> patchDirs = {
+        fs::path(appDir) / "patches",
+        fs::path(appDir) / "dist" / "patches"
+    };
+    for (const auto& dir : patchDirs) {
+        if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) continue;
+        for (const auto& entry : fs::directory_iterator(dir, ec)) {
+            if (!entry.is_regular_file(ec)) continue;
+            std::string fname = entry.path().filename().string();
+            if (fname.size() < 14 || fname.rfind(".rigpatch.json") != fname.size() - 14) continue;
+            std::string raw = readFileText(entry.path());
+            auto bundle = detail::parseAndVerifyRigPatch(raw);
+            if (!bundle.valid) continue;
+            if (compareCalVerStr(bundle.targetVersion, res.latestVersion) > 0) {
+                res.updateAvailable = true;
+                res.isLocalPatch = true;
+                res.isBinaryInstaller = false;
+                res.latestVersion = bundle.targetVersion;
+                res.localPatchPath = entry.path().string();
+                res.source = "local-patch";
+                res.releaseNotes = bundle.notes;
+                res.statusMessage = "Patch v" + bundle.targetVersion + " available";
+            }
+        }
+    }
+
+#ifdef _WIN32
+    // 2. Query GitHub Releases latest endpoint via WinHTTP (3s timeout, read-only HTTPS)
+    std::string apiJson;
+    if (detail::winHttpGetToMemory(
+            L"https://api.github.com/repos/FranciscoFlorio25/GameCheck/releases/latest",
+            apiJson,
+            3000)) {
+        std::string remoteTag = detail::extractJsonStringField(apiJson, "tag_name");
+        if (!remoteTag.empty() && compareCalVerStr(remoteTag, res.latestVersion) > 0) {
+            // Find GameCheck-Setup-*.exe or rigcheck-patch-*.rigpatch.json asset URL
+            std::string exeUrl;
+            std::string patchUrl;
+            size_t searchPos = 0;
+            while (true) {
+                size_t urlKey = apiJson.find("\"browser_download_url\"", searchPos);
+                if (urlKey == std::string::npos) break;
+                std::string urlVal = detail::extractJsonStringField(apiJson, "browser_download_url", urlKey);
+                if (urlVal.find("GameCheck-Setup-") != std::string::npos &&
+                    urlVal.find(".exe") != std::string::npos) {
+                    exeUrl = urlVal;
+                } else if (urlVal.find(".rigpatch.json") != std::string::npos) {
+                    patchUrl = urlVal;
+                }
+                searchPos = urlKey + 22;
+            }
+            if (!exeUrl.empty() || !patchUrl.empty()) {
+                std::string cleanVer = (!remoteTag.empty() && (remoteTag[0] == 'v' || remoteTag[0] == 'V'))
+                    ? remoteTag.substr(1) : remoteTag;
+                res.updateAvailable = true;
+                res.latestVersion = cleanVer;
+                res.source = "github-release";
+                res.releaseNotes = detail::extractJsonStringField(apiJson, "name");
+                if (!exeUrl.empty()) {
+                    res.isBinaryInstaller = true;
+                    res.isLocalPatch = false;
+                    res.downloadUrl = exeUrl;
+                } else {
+                    res.isBinaryInstaller = false;
+                    res.isLocalPatch = false;
+                    res.downloadUrl = patchUrl;
+                }
+                res.statusMessage = "Update v" + cleanVer + " available";
+            }
+        }
+        res.checked = true;
+    } else {
+        res.checked = true;
+        if (res.source.empty()) res.source = "offline";
+    }
+#else
+    res.checked = true;
+    if (res.source.empty()) res.source = "local";
+#endif
+
+    return res;
+}
+
+inline bool applyAutoUpdate(UpdateCheckResult& updateInfo, const std::string& appDir) {
+    if (!updateInfo.updateAvailable) return false;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+
+    if (updateInfo.isLocalPatch && !updateInfo.localPatchPath.empty()) {
+        std::string raw = readFileText(fs::path(updateInfo.localPatchPath));
+        auto bundle = detail::parseAndVerifyRigPatch(raw);
+        if (!bundle.valid) {
+            updateInfo.errorMessage = "Patch SHA-256 verification failed.";
+            return false;
+        }
+
+        // Create backup snapshot of existing target files
+        fs::path backupDir = fs::path(appDir) / "dist" / "backups";
+        fs::create_directories(backupDir, ec);
+        std::time_t now = std::time(nullptr);
+        fs::path backupPath = backupDir / ("backup-" + updateInfo.currentVersion + "-" + std::to_string(now) + ".json");
+        {
+            std::ofstream bfs(backupPath, std::ios::binary | std::ios::trunc);
+            if (bfs) {
+                bfs << "{\"previousVersion\":\"" << escapeJson(updateInfo.currentVersion)
+                    << "\",\"targetVersion\":\"" << escapeJson(bundle.targetVersion)
+                    << "\",\"fileCount\":" << bundle.files.size() << "}\n";
+            }
+        }
+
+        // Write verified patch files
+        for (const auto& f : bundle.files) {
+            fs::path dest = fs::path(appDir) / f.relativePath;
+            fs::create_directories(dest.parent_path(), ec);
+            std::ofstream ofs(dest, std::ios::binary | std::ios::trunc);
+            if (!ofs) {
+                updateInfo.errorMessage = "Failed to write patched file: " + f.relativePath;
+                return false;
+            }
+            ofs.write(f.content.data(), static_cast<std::streamsize>(f.content.size()));
+        }
+
+        updateInfo.applied = true;
+        updateInfo.statusMessage = "Updated to v" + bundle.targetVersion;
+        return true;
+    }
+
+#ifdef _WIN32
+    if (!updateInfo.downloadUrl.empty()) {
+        std::string body;
+        std::wstring wUrl(updateInfo.downloadUrl.begin(), updateInfo.downloadUrl.end());
+        if (!detail::winHttpGetToMemory(wUrl, body, 30000)) {
+            updateInfo.errorMessage = "Failed to download update from GitHub.";
+            return false;
+        }
+
+        if (updateInfo.isBinaryInstaller) {
+            if (body.size() < 10000) {
+                updateInfo.errorMessage = "Downloaded installer binary is invalid.";
+                return false;
+            }
+            wchar_t tmpDir[MAX_PATH] = {};
+            GetTempPathW(MAX_PATH, tmpDir);
+            std::wstring setupPath = std::wstring(tmpDir) + L"GameCheck-Update-Setup.exe";
+            {
+                HANDLE hFile = CreateFileW(setupPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (hFile == INVALID_HANDLE_VALUE) {
+                    updateInfo.errorMessage = "Cannot write update installer to TEMP.";
+                    return false;
+                }
+                DWORD written = 0;
+                WriteFile(hFile, body.data(), static_cast<DWORD>(body.size()), &written, nullptr);
+                CloseHandle(hFile);
+            }
+
+            std::wstring wAppDir(appDir.begin(), appDir.end());
+            std::wstring params = L"--silent --install-dir=\"" + wAppDir + L"\"";
+            SHELLEXECUTEINFOW sei = {};
+            sei.cbSize = sizeof(sei);
+            sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+            sei.lpFile = setupPath.c_str();
+            sei.lpParameters = params.c_str();
+            sei.nShow = SW_HIDE;
+            if (!ShellExecuteExW(&sei)) {
+                updateInfo.errorMessage = "Failed to launch update installer.";
+                return false;
+            }
+            if (sei.hProcess) CloseHandle(sei.hProcess);
+            updateInfo.applied = true;
+            updateInfo.restartRequired = true;
+            updateInfo.statusMessage = "Updating to v" + updateInfo.latestVersion;
+            return true;
+        } else {
+            auto bundle = detail::parseAndVerifyRigPatch(body);
+            if (!bundle.valid) {
+                updateInfo.errorMessage = "Remote patch SHA-256 verification failed.";
+                return false;
+            }
+            for (const auto& f : bundle.files) {
+                fs::path dest = fs::path(appDir) / f.relativePath;
+                fs::create_directories(dest.parent_path(), ec);
+                std::ofstream ofs(dest, std::ios::binary | std::ios::trunc);
+                if (!ofs) return false;
+                ofs.write(f.content.data(), static_cast<std::streamsize>(f.content.size()));
+            }
+            updateInfo.applied = true;
+            updateInfo.statusMessage = "Updated to v" + bundle.targetVersion;
+            return true;
+        }
+    }
+#endif
+
+    return false;
 }
 
 } // namespace GameCheck
