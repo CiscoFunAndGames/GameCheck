@@ -4027,6 +4027,128 @@ inline bool applyAutoUpdate(UpdateCheckResult& updateInfo, const std::string& ap
     return false;
 }
 
+// =============================================================================
+// 11. Persistent User Preferences (%APPDATA%\GameCheck\settings.json | ~/.config/gamecheck/settings.json)
+// =============================================================================
+struct UserPreferences {
+    bool isSpanish = false;
+    int activeOptMode = OPT_MODE_OPTIMAL;
+    bool detailedQuickView = false;
+    std::string activeCountry = "AR";
+    int windowX = -1;
+    int windowY = -1;
+    int windowW = 1320;
+    int windowH = 820;
+};
+
+inline std::filesystem::path getUserPreferencesPath() {
+    namespace fs = std::filesystem;
+#ifdef _WIN32
+    wchar_t appData[MAX_PATH] = {};
+    DWORD len = GetEnvironmentVariableW(L"APPDATA", appData, MAX_PATH);
+    if (len > 0 && len < MAX_PATH) {
+        return fs::path(appData) / L"GameCheck" / L"settings.json";
+    }
+    wchar_t userProf[MAX_PATH] = {};
+    len = GetEnvironmentVariableW(L"USERPROFILE", userProf, MAX_PATH);
+    if (len > 0 && len < MAX_PATH) {
+        return fs::path(userProf) / L"AppData" / L"Roaming" / L"GameCheck" / L"settings.json";
+    }
+    return fs::path("GameCheck") / "settings.json";
+#else
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    if (xdg && xdg[0] != '\0') {
+        return fs::path(xdg) / "gamecheck" / "settings.json";
+    }
+    const char* home = std::getenv("HOME");
+    if (home && home[0] != '\0') {
+        return fs::path(home) / ".config" / "gamecheck" / "settings.json";
+    }
+    return fs::path(".config") / "gamecheck" / "settings.json";
+#endif
+}
+
+inline UserPreferences loadUserPreferences() {
+    UserPreferences prefs;
+    std::error_code ec;
+    std::filesystem::path cfgPath = getUserPreferencesPath();
+    if (!std::filesystem::exists(cfgPath, ec)) {
+        return prefs;
+    }
+    std::ifstream ifs(cfgPath, std::ios::binary);
+    if (!ifs) {
+        return prefs;
+    }
+    std::ostringstream ss;
+    ss << ifs.rdbuf();
+    std::string json = ss.str();
+
+    auto extractBool = [&](const std::string& key, bool defVal) -> bool {
+        std::string needle = "\"" + key + "\"";
+        size_t pos = json.find(needle);
+        if (pos == std::string::npos) return defVal;
+        size_t colon = json.find(':', pos + needle.size());
+        if (colon == std::string::npos) return defVal;
+        size_t valStart = json.find_first_not_of(" \t\r\n", colon + 1);
+        if (valStart == std::string::npos) return defVal;
+        if (json.compare(valStart, 4, "true") == 0) return true;
+        if (json.compare(valStart, 5, "false") == 0) return false;
+        return defVal;
+    };
+
+    auto extractInt = [&](const std::string& key, int defVal) -> int {
+        std::string needle = "\"" + key + "\"";
+        size_t pos = json.find(needle);
+        if (pos == std::string::npos) return defVal;
+        size_t colon = json.find(':', pos + needle.size());
+        if (colon == std::string::npos) return defVal;
+        size_t valStart = json.find_first_not_of(" \t\r\n", colon + 1);
+        if (valStart == std::string::npos) return defVal;
+        size_t valEnd = valStart;
+        if (json[valEnd] == '-') ++valEnd;
+        while (valEnd < json.size() && json[valEnd] >= '0' && json[valEnd] <= '9') ++valEnd;
+        if (valEnd == valStart || (valEnd == valStart + 1 && json[valStart] == '-')) return defVal;
+        try {
+            return std::stoi(json.substr(valStart, valEnd - valStart));
+        } catch (...) {
+            return defVal;
+        }
+    };
+
+    prefs.isSpanish = extractBool("isSpanish", false);
+    prefs.detailedQuickView = extractBool("detailedQuickView", false);
+    int mode = extractInt("activeOptMode", OPT_MODE_OPTIMAL);
+    if (mode >= 0 && mode <= 3) prefs.activeOptMode = mode;
+    std::string country = detail::extractJsonStringField(json, "activeCountry");
+    if (!country.empty()) prefs.activeCountry = country;
+    prefs.windowX = extractInt("windowX", -1);
+    prefs.windowY = extractInt("windowY", -1);
+    prefs.windowW = extractInt("windowW", 1320);
+    prefs.windowH = extractInt("windowH", 820);
+    return prefs;
+}
+
+inline bool saveUserPreferences(const UserPreferences& prefs) {
+    std::error_code ec;
+    std::filesystem::path cfgPath = getUserPreferencesPath();
+    if (!cfgPath.parent_path().empty()) {
+        std::filesystem::create_directories(cfgPath.parent_path(), ec);
+    }
+    std::ofstream ofs(cfgPath, std::ios::binary | std::ios::trunc);
+    if (!ofs) return false;
+    ofs << "{\n"
+        << "  \"isSpanish\": " << (prefs.isSpanish ? "true" : "false") << ",\n"
+        << "  \"activeOptMode\": " << prefs.activeOptMode << ",\n"
+        << "  \"detailedQuickView\": " << (prefs.detailedQuickView ? "true" : "false") << ",\n"
+        << "  \"activeCountry\": \"" << escapeJson(prefs.activeCountry) << "\",\n"
+        << "  \"windowX\": " << prefs.windowX << ",\n"
+        << "  \"windowY\": " << prefs.windowY << ",\n"
+        << "  \"windowW\": " << prefs.windowW << ",\n"
+        << "  \"windowH\": " << prefs.windowH << "\n"
+        << "}\n";
+    return ofs.good();
+}
+
 } // namespace GameCheck
 
 #endif // GAMECHECK_CORE_HPP

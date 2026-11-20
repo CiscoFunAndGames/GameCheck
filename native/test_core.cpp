@@ -201,11 +201,54 @@ int main() {
     check(mdText.find("GPU Driver App Configuration") != std::string::npos, "exportConfigMd() includes GPU Driver App Configuration section");
 
     // 8. CalVer Comparison & SHA-256 Auto-Updater Core
-    std::cout << "\n[8/8] Testing CalVer Comparison & SHA-256 Auto-Updater Core...\n";
+    std::cout << "\n[8/9] Testing CalVer Comparison & SHA-256 Auto-Updater Core...\n";
     check(GameCheck::compareCalVerStr("v2026.11.18.4", "2026.11.17.2") > 0, "compareCalVerStr('v2026.11.18.4', '2026.11.17.2') > 0");
     check(GameCheck::compareCalVerStr("2026.11.17.2", "2026.11.17.2") == 0, "compareCalVerStr('2026.11.17.2', '2026.11.17.2') == 0");
     check(GameCheck::compareCalVerStr("2026.11.17", "2026.11.17.1") < 0, "compareCalVerStr('2026.11.17', '2026.11.17.1') < 0");
     check(GameCheck::sha256Hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "sha256Hex('abc') matches NIST test vector");
+
+    // 9. Persistent User Preferences (settings.json)
+    std::cout << "\n[9/9] Testing Persistent User Preferences Roundtrip...\n";
+    {
+        std::filesystem::path tmpRoot = std::filesystem::temp_directory_path() / "gamecheck_test_prefs";
+        std::error_code ec;
+        std::filesystem::remove_all(tmpRoot, ec);
+        std::filesystem::create_directories(tmpRoot, ec);
+#ifdef _WIN32
+        wchar_t oldAppData[MAX_PATH] = {};
+        DWORD oldLen = GetEnvironmentVariableW(L"APPDATA", oldAppData, MAX_PATH);
+        SetEnvironmentVariableW(L"APPDATA", tmpRoot.wstring().c_str());
+#else
+        const char* oldXdg = std::getenv("XDG_CONFIG_HOME");
+        std::string oldXdgCopy = oldXdg ? oldXdg : "";
+        setenv("XDG_CONFIG_HOME", tmpRoot.string().c_str(), 1);
+#endif
+        GameCheck::UserPreferences outPrefs;
+        outPrefs.isSpanish = true;
+        outPrefs.activeOptMode = GameCheck::OPT_MODE_FULL_FPS;
+        outPrefs.detailedQuickView = true;
+        outPrefs.activeCountry = "ES";
+        outPrefs.windowX = 120;
+        outPrefs.windowY = 85;
+        outPrefs.windowW = 1440;
+        outPrefs.windowH = 900;
+
+        bool saved = GameCheck::saveUserPreferences(outPrefs);
+        GameCheck::UserPreferences inPrefs = GameCheck::loadUserPreferences();
+
+#ifdef _WIN32
+        SetEnvironmentVariableW(L"APPDATA", oldLen > 0 ? oldAppData : nullptr);
+#else
+        if (!oldXdgCopy.empty()) setenv("XDG_CONFIG_HOME", oldXdgCopy.c_str(), 1);
+        else unsetenv("XDG_CONFIG_HOME");
+#endif
+        std::filesystem::remove_all(tmpRoot, ec);
+
+        check(saved, "saveUserPreferences() writes settings.json");
+        check(inPrefs.isSpanish == true && inPrefs.activeOptMode == GameCheck::OPT_MODE_FULL_FPS, "loadUserPreferences() restores language & optMode");
+        check(inPrefs.detailedQuickView == true && inPrefs.activeCountry == "ES", "loadUserPreferences() restores detailedQuickView & country");
+        check(inPrefs.windowX == 120 && inPrefs.windowY == 85 && inPrefs.windowW == 1440 && inPrefs.windowH == 900, "loadUserPreferences() restores window geometry");
+    }
 
     std::cout << "\n================================================================\n";
     std::cout << "  PASSED: " << g_passed << " | FAILED: " << g_failed << "\n";

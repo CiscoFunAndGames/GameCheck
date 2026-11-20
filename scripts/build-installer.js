@@ -33,7 +33,7 @@ function buildPayloadStage(stageDir) {
   }
   fs.mkdirSync(stageDir, { recursive: true });
 
-  const dirsToCopy = ['src', 'public', 'scripts', 'bin', 'native'];
+  const dirsToCopy = ['src', 'public', 'scripts', 'bin', 'native', 'assets'];
   for (const dirName of dirsToCopy) {
     const srcDir = path.join(ROOT_DIR, dirName);
     if (fs.existsSync(srcDir)) {
@@ -274,11 +274,22 @@ fi
 rm -f "\${PAYLOAD_ZIP}"
 \$DIR_SUDO chmod +x "\${INSTALL_DIR}/gamecheck-desktop.sh" "\${INSTALL_DIR}/rigcheck-desktop.sh" 2>/dev/null || true
 
-# 2. Compile C++17 Native Display Driver Probe for Linux if g++ is present
-if command -v g++ >/dev/null 2>&1 && [ -f "\${INSTALL_DIR}/native/rigcheck_probe.cpp" ]; then
+# 2. Compile C++17 Native Display Driver Probe & Desktop GUI for Linux if g++ is present
+if command -v g++ >/dev/null 2>&1; then
   \$DIR_SUDO mkdir -p "\${INSTALL_DIR}/bin"
-  \$DIR_SUDO g++ -O2 -std=c++17 "\${INSTALL_DIR}/native/rigcheck_probe.cpp" -o "\${INSTALL_DIR}/bin/rigcheck-native-probe" 2>/dev/null || true
-  \$DIR_SUDO chmod +x "\${INSTALL_DIR}/bin/rigcheck-native-probe" 2>/dev/null || true
+  if [ -f "\${INSTALL_DIR}/native/rigcheck_probe.cpp" ]; then
+    \$DIR_SUDO g++ -O2 -std=c++17 "\${INSTALL_DIR}/native/rigcheck_probe.cpp" -o "\${INSTALL_DIR}/bin/rigcheck-native-probe" 2>/dev/null || true
+    \$DIR_SUDO chmod +x "\${INSTALL_DIR}/bin/rigcheck-native-probe" 2>/dev/null || true
+  fi
+  if [ -f "\${INSTALL_DIR}/native/gamecheck_desktop.cpp" ]; then
+    if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists gtk+-3.0 2>/dev/null; then
+      \$DIR_SUDO g++ -O2 -std=c++17 -DGAMECHECK_USE_GTK "\${INSTALL_DIR}/native/gamecheck_desktop.cpp" -o "\${INSTALL_DIR}/bin/gamecheck" \$(pkg-config --cflags --libs gtk+-3.0) -lpthread 2>/dev/null || \
+      \$DIR_SUDO g++ -O2 -std=c++17 "\${INSTALL_DIR}/native/gamecheck_desktop.cpp" -o "\${INSTALL_DIR}/bin/gamecheck" -lpthread 2>/dev/null || true
+    else
+      \$DIR_SUDO g++ -O2 -std=c++17 "\${INSTALL_DIR}/native/gamecheck_desktop.cpp" -o "\${INSTALL_DIR}/bin/gamecheck" -lpthread 2>/dev/null || true
+    fi
+    \$DIR_SUDO chmod +x "\${INSTALL_DIR}/bin/gamecheck" 2>/dev/null || true
+  fi
 fi
 
 # 3. Install Electron runtime via npm if not yet present in node_modules
@@ -405,33 +416,42 @@ function buildInstallers() {
 
   const guiCppPath = path.join(ROOT_DIR, 'native', 'gamecheck_desktop.cpp');
   const coreHppPath = path.join(ROOT_DIR, 'native', 'gamecheck_core.hpp');
+  const rcGuiPath = path.join(ROOT_DIR, 'native', 'gamecheck.rc');
+  const icoPath = path.join(ROOT_DIR, 'assets', 'gamecheck.ico');
   if (process.platform === 'win32' && fs.existsSync(guiCppPath) && fs.existsSync(coreHppPath)) {
     fs.mkdirSync(path.join(ROOT_DIR, 'bin'), { recursive: true });
-    execFileSync(
-      toolchain.gpp,
-      [
-        '-O2',
-        '-std=c++17',
-        '-mwindows',
-        'native/gamecheck_desktop.cpp',
-        '-o',
-        'bin/GameCheck.exe',
-        '-lgdiplus',
-        '-luxtheme',
-        '-lcomctl32',
-        '-lcomdlg32',
-        '-lshell32',
-        '-luser32',
-        '-lgdi32',
-        '-ladvapi32',
-        '-lole32',
-        '-luuid',
-        '-lwinhttp',
-        '-static',
-        '-s'
-      ],
-      { cwd: ROOT_DIR, env: buildEnv }
+    const guiCompileArgs = [
+      '-O2',
+      '-std=c++17',
+      '-mwindows',
+      'native/gamecheck_desktop.cpp'
+    ];
+    if (fs.existsSync(rcGuiPath) && fs.existsSync(icoPath)) {
+      execFileSync(
+        toolchain.windres,
+        ['native/gamecheck.rc', '-O', 'coff', '-o', 'native/gamecheck_res.o'],
+        { cwd: ROOT_DIR, env: buildEnv }
+      );
+      guiCompileArgs.push('native/gamecheck_res.o');
+    }
+    guiCompileArgs.push(
+      '-o',
+      'bin/GameCheck.exe',
+      '-lgdiplus',
+      '-luxtheme',
+      '-lcomctl32',
+      '-lcomdlg32',
+      '-lshell32',
+      '-luser32',
+      '-lgdi32',
+      '-ladvapi32',
+      '-lole32',
+      '-luuid',
+      '-lwinhttp',
+      '-static',
+      '-s'
     );
+    execFileSync(toolchain.gpp, guiCompileArgs, { cwd: ROOT_DIR, env: buildEnv });
   }
 
   const stageDir = path.join(DIST_DIR, '_stage_payload');
@@ -472,8 +492,11 @@ function buildInstallers() {
 `;
     fs.writeFileSync(configHeaderPath, configHeader, 'utf8');
 
+    const installerIconLine = fs.existsSync(icoPath)
+      ? '101 ICON "../assets/gamecheck.ico"\n'
+      : '';
     const rcContent = `#include <windows.h>
-101 RCDATA "${payloadZipName}"
+${installerIconLine}101 RCDATA "${payloadZipName}"
 `;
     fs.writeFileSync(rcPath, rcContent, 'utf8');
 
