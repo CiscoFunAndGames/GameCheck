@@ -32,7 +32,36 @@ const STEAM_APP_ID_MAP = {
   'final-fantasy-xvi': '2515020',
   'spider-man-remastered': '1817070',
   'god-of-war-ragnarok': '2322010',
-  'path-of-exile-2': '2694490'
+  'path-of-exile-2': '2694490',
+  'horizon-forbidden-west': '2420110',
+  'the-last-of-us-part-1': '1888930',
+  'control': '870780',
+  'metro-exodus-enhanced': '1449560',
+  'doom-eternal': '782330',
+  'hollow-knight': '367520',
+  'hades-ii': '1145350',
+  'diablo-iv': '2344520',
+  'league-of-legends': null,
+  'dota-2': '570',
+  'overwatch-2': '2357570',
+  'rainbow-six-siege': '359550',
+  'pubg-battlegrounds': '578080',
+  'escape-from-tarkov': null,
+  'rust': '252490',
+  'palworld': '1623730',
+  'enshrouded': '1203620',
+  'valheim': '892970',
+  'no-mans-sky': '275850',
+  'ms-flight-sim-2024': '2537590',
+  'f1-24': '2488620',
+  'assetto-corsa-competizione': '805550',
+  'civilization-vii': '1295660',
+  'cities-skylines-ii': '949230',
+  'kingdom-come-deliverance-2': '1771300',
+  'dragons-dogma-2': '2054970',
+  'silent-hill-2-remake': '2124490',
+  'indiana-jones-great-circle': '2677660',
+  'gta-vi-projected': null
 };
 
 function escapeXml(str = '') {
@@ -847,6 +876,934 @@ const GAMES_CATALOG = [
       'In RE Engine, "Texture Quality" controls the streaming pool budget: keep it at "High (2 GB)" or "High (3 GB)" on 8GB cards to avoid fatal DXGI crashes.',
       'Disable "Hair Strands" and "Ray Tracing" for an immediate +25% FPS increase during rainy village chapters.',
       'Set "Shadow Cache" to On and "Volumetric Lighting" to Medium for smooth 90+ FPS.'
+    ]
+  },
+  {
+    id: 'fortnite',
+    title: 'Fortnite',
+    genre: 'Battle Royale',
+    releaseYear: 2017,
+    engine: 'Unreal Engine 5',
+    supportsRT: true,
+    supportsUpscaling: ['DLSS', 'FSR', 'TSR'],
+    storageGB: 70,
+    ssdRequired: true,
+    baseRecFps: 144,
+    minimum: {
+      cpu: 'Intel Core i3-3225',
+      gpu: 'Intel HD 4000 or AMD Radeon Vega 8',
+      ramGB: 8,
+      vramGB: 2
+    },
+    recommended: {
+      cpu: 'Intel Core i5-7300U or AMD Ryzen 3 3300U',
+      gpu: 'NVIDIA GeForce GTX 960 or AMD Radeon R9 280',
+      ramGB: 16,
+      vramGB: 4
+    },
+    tuningTips: [
+      'Use Performance Mode (Lower Graphical Fidelity) for 165-240+ FPS in competitive Zero Build and Ranked.',
+      'Disable Nanite Virtualized Geometry and Hardware Ray Tracing unless playing casual 60 FPS cinematic mode.',
+      'Turn on NVIDIA Reflex Low Latency + Boost for responsive building and edits.'
+    ]
+  },
+  {
+    id: 'space-marine-2',
+    title: 'Warhammer 40,000: Space Marine 2',
+    genre: 'Third-Person Action Shooter',
+    releaseYear: 2024,
+    engine: 'Swarm Engine',
+    supportsRT: false,
+    supportsUpscaling: ['DLSS', 'FSR'],
+    storageGB: 75,
+    ssdRequired: true,
+    baseRecFps: 66,
+    minimum: {
+      cpu: 'AMD Ryzen 5 2600X or Intel Core i5-8600K',
+      gpu: 'AMD Radeon RX 580 or NVIDIA GeForce GTX 1060 6GB',
+      ramGB: 8,
+      vramGB: 6
+    },
+    recommended: {
+      cpu: 'AMD Ryzen 7 5800X or Intel Core i7-12700',
+      gpu: 'AMD Radeon RX 6800 XT or NVIDIA GeForce RTX 3070',
+      ramGB: 16,
+      vramGB: 8
+    },
+    tuningTips: [
+      'Tyranid swarm physics are CPU-heavy: keep Cloth Simulation and Volumetric Effects at Medium.',
+      'Enable DLSS Quality or FSR 2 Quality to hold 60+ FPS during massive horde waves.',
+      'Keep Texture Filtering at High on 8GB VRAM cards.'
+    ]
+  },
+  {
+    id: 'final-fantasy-xvi',
+    title: 'Final Fantasy XVI',
+    genre: 'Action RPG',
+    releaseYear: 2024,
+    engine: 'Square Enix Proprietary',
+    supportsRT: false,
+    supportsUpscaling: ['DLSS', 'FSR', 'XeSS'],
+    storageGB: 170,
+    ssdRequired: true,
+    baseRecFps: 60,
+    minimum: {
+      cpu: 'AMD Ryzen 5 1600 or Intel Core i5-8400',
+      gpu: 'AMD Radeon RX 5700 or NVIDIA GeForce GTX 1070',
+      ramGB: 16,
+      vramGB: 8
+    },
+    recommended: {
+      cpu: 'AMD Ryzen 7 5700X or Intel Core i7-10700',
+      gpu: 'AMD Radeon RX 6700 XT or NVIDIA GeForce RTX 2080',
+      ramGB: 16,
+      vramGB: 8
+    },
+    tuningTips: [
+      'Enable Dynamic Resolution with DLSS 3 or FSR 3 Quality to maintain 60+ FPS during Eikon battles.',
+      'Set Graphical Fidelity and Shadow Quality to High instead of Ultra on 8GB VRAM GPUs.',
+      'Must be installed on a fast NVMe SSD for seamless cutscene-to-combat transitions.'
+    ]
+  },
+  {
+    id: 'horizon-forbidden-west',
+    title: 'Horizon Forbidden West Complete Edition',
+    genre: 'Action RPG',
+    releaseYear: 2024,
+    engine: 'Decima Engine',
+    supportsRT: false,
+    supportsUpscaling: ['DLSS', 'FSR', 'XeSS'],
+    storageGB: 150,
+    ssdRequired: true,
+    baseRecFps: 74,
+    minimum: {
+      cpu: 'Intel Core i3-8100 or AMD Ryzen 3 1300X',
+      gpu: 'NVIDIA GeForce GTX 1650 4GB or AMD Radeon RX 5500 XT 4GB',
+      ramGB: 16,
+      vramGB: 4
+    },
+    recommended: {
+      cpu: 'Intel Core i5-8600 or AMD Ryzen 5 3600',
+      gpu: 'NVIDIA GeForce RTX 3060 or AMD Radeon RX 5700',
+      ramGB: 16,
+      vramGB: 8
+    },
+    tuningTips: [
+      'Keep Texture Quality at High on 8GB VRAM GPUs to prevent texture pop-in in Burning Shores.',
+      'Lower Cloud Quality and Hair Quality from Very High to Medium/High for +15% FPS.',
+      'Use DLSS 3 or FSR 2.2 Quality for crisp foliage rendering at 1440p.'
+    ]
+  },
+  {
+    id: 'the-last-of-us-part-1',
+    title: 'The Last of Us Part I',
+    genre: 'Action Adventure',
+    releaseYear: 2023,
+    engine: 'Naughty Dog Engine',
+    supportsRT: false,
+    supportsUpscaling: ['DLSS', 'FSR'],
+    storageGB: 100,
+    ssdRequired: true,
+    baseRecFps: 62,
+    minimum: {
+      cpu: 'AMD Ryzen 5 1500X or Intel Core i7-4770K',
+      gpu: 'AMD Radeon RX 470 or NVIDIA GeForce GTX 970',
+      ramGB: 16,
+      vramGB: 4
+    },
+    recommended: {
+      cpu: 'AMD Ryzen 5 3600 or Intel Core i7-8700',
+      gpu: 'AMD Radeon RX 5700 XT or NVIDIA GeForce RTX 2070 Super',
+      ramGB: 16,
+      vramGB: 8
+    },
+    tuningTips: [
+      'Wait for initial shader compilation to reach 100% in the main menu before starting gameplay.',
+      'Set Environment Texture Quality to Medium/High on 8GB VRAM cards to stay under the VRAM budget.',
+      'Enable DLSS or FSR Quality to smooth out dense overgrown city chapters.'
+    ]
+  },
+  {
+    id: 'control',
+    title: 'Control Ultimate Edition',
+    genre: 'Action Adventure',
+    releaseYear: 2020,
+    engine: 'Northlight Engine',
+    supportsRT: true,
+    supportsUpscaling: ['DLSS'],
+    storageGB: 42,
+    ssdRequired: false,
+    baseRecFps: 82,
+    minimum: {
+      cpu: 'Intel Core i5-4690 or AMD FX-4350',
+      gpu: 'NVIDIA GeForce GTX 780 or AMD Radeon R9 280X',
+      ramGB: 8,
+      vramGB: 4
+    },
+    recommended: {
+      cpu: 'Intel Core i5-7600K or AMD Ryzen 5 1600X',
+      gpu: 'NVIDIA GeForce GTX 1660 or AMD Radeon RX 580',
+      ramGB: 16,
+      vramGB: 6
+    },
+    tuningTips: [
+      'Set Volumetric Lighting and Screen Space Reflections to Medium for +20% FPS with virtually identical visuals.',
+      'If enabling Ray Tracing, toggle on DLSS Quality and keep RT Indirect Diffuse Lighting off on mid-range GPUs.',
+      'Run in DirectX 12 mode for better multi-core CPU scaling and ray tracing support.'
+    ]
+  },
+  {
+    id: 'metro-exodus-enhanced',
+    title: 'Metro Exodus Enhanced Edition',
+    genre: 'First-Person Shooter',
+    releaseYear: 2021,
+    engine: '4A Engine',
+    supportsRT: true,
+    supportsUpscaling: ['DLSS'],
+    storageGB: 80,
+    ssdRequired: true,
+    baseRecFps: 68,
+    minimum: {
+      cpu: 'Intel Core i5-4440',
+      gpu: 'NVIDIA GeForce RTX 2060',
+      ramGB: 8,
+      vramGB: 6
+    },
+    recommended: {
+      cpu: 'Intel Core i7-8700K',
+      gpu: 'NVIDIA GeForce RTX 2070 or AMD Radeon RX 6700 XT',
+      ramGB: 16,
+      vramGB: 8
+    },
+    tuningTips: [
+      'Enhanced Edition requires a hardware Ray Tracing GPU (RTX 20-series or RX 6000-series+).',
+      'Enable DLSS Quality and set Ray Tracing to Normal rather than Ultra for 60+ FPS in open Volga/Caspian zones.',
+      'Keep Hairworks and Advanced PhysX off unless you have significant GPU headroom.'
+    ]
+  },
+  {
+    id: 'doom-eternal',
+    title: 'DOOM Eternal',
+    genre: 'First-Person Shooter',
+    releaseYear: 2020,
+    engine: 'id Tech 7',
+    supportsRT: true,
+    supportsUpscaling: ['DLSS'],
+    storageGB: 80,
+    ssdRequired: true,
+    baseRecFps: 144,
+    minimum: {
+      cpu: 'Intel Core i5-4430 or AMD Ryzen 3 1200',
+      gpu: 'NVIDIA GeForce GTX 1050 Ti or AMD Radeon RX 470',
+      ramGB: 8,
+      vramGB: 4
+    },
+    recommended: {
+      cpu: 'Intel Core i7-6700K or AMD Ryzen 7 1700',
+      gpu: 'NVIDIA GeForce GTX 1080 or AMD Radeon RX 5700',
+      ramGB: 8,
+      vramGB: 8
+    },
+    tuningTips: [
+      'id Tech 7 runs on Vulkan and scales effortlessly to 144+ FPS on mid-range hardware.',
+      'Keep Texture Pool Size at High on 6-8GB VRAM cards so it never exceeds available VRAM.',
+      'Disable Ray-Traced Reflections on non-RTX 3070+ GPUs to maintain locked high-refresh competitive fluidity.'
+    ]
+  },
+  {
+    id: 'hollow-knight',
+    title: 'Hollow Knight',
+    genre: 'Metroidvania Indie',
+    releaseYear: 2017,
+    engine: 'Unity',
+    supportsRT: false,
+    supportsUpscaling: ['Native'],
+    storageGB: 9,
+    ssdRequired: false,
+    baseRecFps: 144,
+    minimum: {
+      cpu: 'Intel Core 2 Duo E5200',
+      gpu: 'NVIDIA GeForce 9800GTX+ or AMD Radeon HD 4850',
+      ramGB: 4,
+      vramGB: 1
+    },
+    recommended: {
+      cpu: 'Intel Core i5-4460',
+      gpu: 'NVIDIA GeForce GTX 560 or AMD Radeon R7 260X',
+      ramGB: 8,
+      vramGB: 2
+    },
+    tuningTips: [
+      'Runs at 144+ FPS on virtually any modern integrated or discrete GPU.',
+      'Set Particle Effects to Normal if you experience minor frame dips in White Palace or Godhome.',
+      'Use Borderless Fullscreen with V-Sync off if your monitor supports G-Sync/FreeSync for zero input lag.'
+    ]
+  },
+  {
+    id: 'hades-ii',
+    title: 'Hades II',
+    genre: 'Roguelike Action',
+    releaseYear: 2024,
+    engine: 'Supergiant Custom Engine',
+    supportsRT: false,
+    supportsUpscaling: ['Native'],
+    storageGB: 10,
+    ssdRequired: false,
+    baseRecFps: 144,
+    minimum: {
+      cpu: 'Intel Core i5-6500 or AMD Ryzen 3 1200',
+      gpu: 'NVIDIA GeForce GTX 950 or AMD Radeon R7 370',
+      ramGB: 8,
+      vramGB: 2
+    },
+    recommended: {
+      cpu: 'Intel Core i5-8400 or AMD Ryzen 5 2600',
+      gpu: 'NVIDIA GeForce GTX 1060 or AMD Radeon RX 580',
+      ramGB: 16,
+      vramGB: 4
+    },
+    tuningTips: [
+      'Extremely lightweight and responsive: easily hits 120-240 FPS on 1080p/1440p displays.',
+      'Enable V-Sync or cap FPS to your monitor refresh rate to prevent unnecessary GPU coil whine.',
+      'Run in DirectX 12 or Vulkan for optimal frame pacing during busy Olympus encounters.'
+    ]
+  },
+  {
+    id: 'diablo-iv',
+    title: 'Diablo IV',
+    genre: 'Action RPG',
+    releaseYear: 2023,
+    engine: 'Blizzard Proprietary',
+    supportsRT: true,
+    supportsUpscaling: ['DLSS', 'FSR', 'XeSS'],
+    storageGB: 90,
+    ssdRequired: true,
+    baseRecFps: 96,
+    minimum: {
+      cpu: 'Intel Core i5-2500K or AMD FX-8100',
+      gpu: 'NVIDIA GeForce GTX 660 or AMD Radeon R9 280',
+      ramGB: 8,
+      vramGB: 4
+    },
+    recommended: {
+      cpu: 'Intel Core i5-4670K or AMD Ryzen 3 1300X',
+      gpu: 'NVIDIA GeForce GTX 970 or AMD Radeon RX 470',
+      ramGB: 16,
+      vramGB: 6
+    },
+    tuningTips: [
+      'Do not install the optional High-Resolution Assets pack if your GPU has 8GB VRAM or less.',
+      'Keep Fur Quality and Clutter Quality at Medium to eliminate town/world-boss stuttering.',
+      'Enable DLSS Quality + NVIDIA Reflex for crisp 120+ FPS ARPG combat.'
+    ]
+  },
+  {
+    id: 'league-of-legends',
+    title: 'League of Legends',
+    genre: 'Competitive MOBA',
+    releaseYear: 2009,
+    engine: 'Riot Proprietary',
+    supportsRT: false,
+    supportsUpscaling: ['Native'],
+    storageGB: 16,
+    ssdRequired: false,
+    baseRecFps: 180,
+    minimum: {
+      cpu: 'Intel Core i3-530 or AMD A6-3650',
+      gpu: 'NVIDIA GeForce 9600GT or AMD Radeon HD 6570',
+      ramGB: 4,
+      vramGB: 1
+    },
+    recommended: {
+      cpu: 'Intel Core i5-3300 or AMD Ryzen 3 1200',
+      gpu: 'NVIDIA GeForce GTX 560 or AMD Radeon HD 6950',
+      ramGB: 8,
+      vramGB: 2
+    },
+    tuningTips: [
+      'Single-core CPU speed drives late-game 5v5 teamfight FPS; close browser tabs in the background.',
+      'Cap FPS at 144 or 240 FPS instead of Uncapped to avoid character-skipping movement bugs.',
+      'Disable Eye Candy and Character Inking for maximum visual clarity in teamfights.'
+    ]
+  },
+  {
+    id: 'dota-2',
+    title: 'Dota 2',
+    genre: 'Competitive MOBA',
+    releaseYear: 2013,
+    engine: 'Source 2',
+    supportsRT: false,
+    supportsUpscaling: ['FSR'],
+    storageGB: 60,
+    ssdRequired: false,
+    baseRecFps: 144,
+    minimum: {
+      cpu: 'Intel Core i5-2400 or AMD FX-6300',
+      gpu: 'NVIDIA GeForce GTX 650 or AMD Radeon HD 7750',
+      ramGB: 4,
+      vramGB: 2
+    },
+    recommended: {
+      cpu: 'Intel Core i5-8400 or AMD Ryzen 5 2600',
+      gpu: 'NVIDIA GeForce GTX 1060 or AMD Radeon RX 580',
+      ramGB: 8,
+      vramGB: 4
+    },
+    tuningTips: [
+      'Use the Vulkan or DirectX 11 API depending on which gives steadier 1% lows on your GPU.',
+      'Turn off Animate Portrait, Grass, and High Quality Water for +18% FPS in chaotic Roshan fights.',
+      'Enable NVIDIA Reflex Low Latency in Video settings for faster last-hitting and spell reactions.'
+    ]
+  },
+  {
+    id: 'overwatch-2',
+    title: 'Overwatch 2',
+    genre: 'Competitive Hero Shooter',
+    releaseYear: 2022,
+    engine: 'Overwatch Engine',
+    supportsRT: false,
+    supportsUpscaling: ['DLSS', 'FSR'],
+    storageGB: 50,
+    ssdRequired: true,
+    baseRecFps: 165,
+    minimum: {
+      cpu: 'Intel Core i3-6100 or AMD Ryzen 3 1200',
+      gpu: 'NVIDIA GeForce GTX 600 series or AMD Radeon HD 7000',
+      ramGB: 6,
+      vramGB: 2
+    },
+    recommended: {
+      cpu: 'Intel Core i7-4770 or AMD Ryzen 5 1600',
+      gpu: 'NVIDIA GeForce GTX 1060 or AMD Radeon RX 580',
+      ramGB: 8,
+      vramGB: 4
+    },
+    tuningTips: [
+      'Set Render Scale to 100% (or FSR/DLSS Quality) and Dynamic Render Scale to Off for crisp aim.',
+      'Lower Fog Detail, Local Reflections, and Shadow Detail to Low for rock-solid 165-240 FPS.',
+      'Enable NVIDIA Reflex + Boost to minimize system click-to-photon latency.'
+    ]
+  },
+  {
+    id: 'rainbow-six-siege',
+    title: "Tom Clancy's Rainbow Six Siege",
+    genre: 'Tactical Shooter',
+    releaseYear: 2015,
+    engine: 'AnvilNext 2.0',
+    supportsRT: false,
+    supportsUpscaling: ['DLSS', 'FSR'],
+    storageGB: 85,
+    ssdRequired: false,
+    baseRecFps: 180,
+    minimum: {
+      cpu: 'Intel Core i3-560 or AMD Phenom II X4 945',
+      gpu: 'NVIDIA GeForce GTX 460 or AMD Radeon HD 5870',
+      ramGB: 6,
+      vramGB: 2
+    },
+    recommended: {
+      cpu: 'Intel Core i5-2500K or AMD FX-8120',
+      gpu: 'NVIDIA GeForce GTX 670 or AMD Radeon HD 7970',
+      ramGB: 8,
+      vramGB: 4
+    },
+    tuningTips: [
+      'Run the DirectX 11 or Vulkan executable and enable NVIDIA Reflex / Anti-Lag.',
+      'Set Shadows to Medium (keeps player shadows visible) while lowering Shading and Reflection Quality to Low.',
+      'Use T-AA at 100% Render Scaling or DLSS Quality for razor-sharp pixel peeks.'
+    ]
+  },
+  {
+    id: 'pubg-battlegrounds',
+    title: 'PUBG: BATTLEGROUNDS',
+    genre: 'Battle Royale',
+    releaseYear: 2017,
+    engine: 'Unreal Engine 4',
+    supportsRT: false,
+    supportsUpscaling: ['Native'],
+    storageGB: 40,
+    ssdRequired: true,
+    baseRecFps: 115,
+    minimum: {
+      cpu: 'Intel Core i5-4430 or AMD FX-6300',
+      gpu: 'NVIDIA GeForce GTX 960 or AMD Radeon R7 370',
+      ramGB: 8,
+      vramGB: 2
+    },
+    recommended: {
+      cpu: 'Intel Core i5-6600K or AMD Ryzen 5 1600',
+      gpu: 'NVIDIA GeForce GTX 1060 3GB or AMD Radeon RX 580',
+      ramGB: 16,
+      vramGB: 4
+    },
+    tuningTips: [
+      'Set Foliage, Shadows, and Effects to Very Low for both maximum FPS and clearer enemy visibility.',
+      'Keep Textures and View Distance at Medium/High if you have 6GB+ VRAM.',
+      'Run in DirectX 11 Enhanced mode for the best frame-time consistency in hot-drops.'
+    ]
+  },
+  {
+    id: 'escape-from-tarkov',
+    title: 'Escape from Tarkov',
+    genre: 'Tactical Extraction Shooter',
+    releaseYear: 2017,
+    engine: 'Unity',
+    supportsRT: false,
+    supportsUpscaling: ['DLSS', 'FSR'],
+    storageGB: 45,
+    ssdRequired: true,
+    baseRecFps: 72,
+    minimum: {
+      cpu: 'Intel Core i5-4460 or AMD Ryzen 3 1200',
+      gpu: 'NVIDIA GeForce GTX 960 or AMD Radeon RX 560',
+      ramGB: 16,
+      vramGB: 4
+    },
+    recommended: {
+      cpu: 'Intel Core i7-10700 or AMD Ryzen 7 5800X3D',
+      gpu: 'NVIDIA GeForce RTX 3060 or AMD Radeon RX 6700 XT',
+      ramGB: 32,
+      vramGB: 8
+    },
+    tuningTips: [
+      'Streets of Tarkov is heavily CPU & RAM bound: 32 GB RAM and X3D cache CPUs yield massive 1% low gains.',
+      "Enable 'Streets of Tarkov Lower Texture Resolution Mode' on 8GB VRAM GPUs to prevent stutters.",
+      'Use DLSS Quality or FSR 2.2 Quality to offset the performance hit of dual-render PiP scopes.'
+    ]
+  },
+  {
+    id: 'rust',
+    title: 'Rust',
+    genre: 'Survival Sandbox',
+    releaseYear: 2018,
+    engine: 'Unity',
+    supportsRT: false,
+    supportsUpscaling: ['DLSS'],
+    storageGB: 25,
+    ssdRequired: true,
+    baseRecFps: 84,
+    minimum: {
+      cpu: 'Intel Core i7-3770 or AMD FX-9590',
+      gpu: 'NVIDIA GeForce GTX 670 or AMD Radeon R9 280',
+      ramGB: 10,
+      vramGB: 4
+    },
+    recommended: {
+      cpu: 'Intel Core i7-9700K or AMD Ryzen 7 5800X3D',
+      gpu: 'NVIDIA GeForce RTX 2060 or AMD Radeon RX 5700',
+      ramGB: 16,
+      vramGB: 8
+    },
+    tuningTips: [
+      'Rust is intensely CPU- and memory-bound on high-pop servers: 16-32 GB RAM and an SSD are essential.',
+      'Set Graphics Quality to 3-4, Shadow Cascades to None/Two, and Max Gibs to 0 for smoother PvP gunfights.',
+      'Enable DLSS Quality and NVIDIA Reflex to reduce input lag during base raids.'
+    ]
+  },
+  {
+    id: 'palworld',
+    title: 'Palworld',
+    genre: 'Survival Monster-Taming',
+    releaseYear: 2024,
+    engine: 'Unreal Engine 5',
+    supportsRT: false,
+    supportsUpscaling: ['DLSS', 'TSR'],
+    storageGB: 40,
+    ssdRequired: true,
+    baseRecFps: 76,
+    minimum: {
+      cpu: 'Intel Core i5-3570K or AMD Ryzen 3 1200',
+      gpu: 'NVIDIA GeForce GTX 1050 2GB or AMD Radeon RX 560',
+      ramGB: 16,
+      vramGB: 4
+    },
+    recommended: {
+      cpu: 'Intel Core i9-9900K or AMD Ryzen 5 5600',
+      gpu: 'NVIDIA GeForce RTX 2070 or AMD Radeon RX 6600 XT',
+      ramGB: 32,
+      vramGB: 8
+    },
+    tuningTips: [
+      'Hosting a multiplayer co-op world uses significant RAM: 32 GB is recommended for smooth base building.',
+      'Lower View Distance and Grass Details to Medium for +20% FPS in dense Pal bases.',
+      'Enable DLSS Quality or TSR Balanced at 1440p.'
+    ]
+  },
+  {
+    id: 'enshrouded',
+    title: 'Enshrouded',
+    genre: 'Survival Action RPG',
+    releaseYear: 2024,
+    engine: 'Voxel Proprietary Engine',
+    supportsRT: false,
+    supportsUpscaling: ['DLSS', 'FSR'],
+    storageGB: 60,
+    ssdRequired: true,
+    baseRecFps: 68,
+    minimum: {
+      cpu: 'Intel Core i5-6400 or AMD Ryzen 5 1500X',
+      gpu: 'NVIDIA GeForce GTX 1060 6GB or AMD Radeon RX 580 8GB',
+      ramGB: 16,
+      vramGB: 6
+    },
+    recommended: {
+      cpu: 'Intel Core i7-8700 or AMD Ryzen 5 3700X',
+      gpu: 'NVIDIA GeForce RTX 2070 Super or AMD Radeon RX 6700 XT',
+      ramGB: 16,
+      vramGB: 8
+    },
+    tuningTips: [
+      'Voxel global illumination and dense fog are GPU-heavy: set Fog Quality and GI Quality to Performance/Balanced.',
+      'Enable DLSS Quality or FSR 2 Quality for a +25-30% FPS boost in Shroud zones.',
+      'Keep Texture Resolution at Balanced on 6GB VRAM cards.'
+    ]
+  },
+  {
+    id: 'valheim',
+    title: 'Valheim',
+    genre: 'Survival Co-op',
+    releaseYear: 2021,
+    engine: 'Unity',
+    supportsRT: false,
+    supportsUpscaling: ['Native'],
+    storageGB: 2,
+    ssdRequired: false,
+    baseRecFps: 95,
+    minimum: {
+      cpu: 'Intel Core i5-7400 or AMD Ryzen 3 1200',
+      gpu: 'NVIDIA GeForce GTX 950 or AMD Radeon R9 280',
+      ramGB: 8,
+      vramGB: 2
+    },
+    recommended: {
+      cpu: 'Intel Core i5-10400 or AMD Ryzen 5 3600',
+      gpu: 'NVIDIA GeForce GTX 1060 or AMD Radeon RX 580',
+      ramGB: 16,
+      vramGB: 4
+    },
+    tuningTips: [
+      'Large player-built bases with many terraformed terrain instances tax CPU draw calls.',
+      'Lower Vegetation Quality and Active Point Lights to Medium to keep base FPS above 60.',
+      'Run with Vulkan (-force-vulkan) if you experience stuttering on DirectX 11.'
+    ]
+  },
+  {
+    id: 'no-mans-sky',
+    title: "No Man's Sky",
+    genre: 'Space Exploration Survival',
+    releaseYear: 2016,
+    engine: 'Hello Games Proprietary',
+    supportsRT: false,
+    supportsUpscaling: ['DLSS', 'FSR', 'XeSS'],
+    storageGB: 15,
+    ssdRequired: true,
+    baseRecFps: 88,
+    minimum: {
+      cpu: 'Intel Core i3-4130 or AMD FX-6300',
+      gpu: 'NVIDIA GeForce GTX 1060 3GB or AMD Radeon RX 470',
+      ramGB: 8,
+      vramGB: 4
+    },
+    recommended: {
+      cpu: 'Intel Core i5-8400 or AMD Ryzen 5 2600',
+      gpu: 'NVIDIA GeForce RTX 2060 or AMD Radeon RX 5600 XT',
+      ramGB: 16,
+      vramGB: 6
+    },
+    tuningTips: [
+      'Planet Quality and Reflections are the biggest GPU hits: keep both at Enhanced/High instead of Ultra.',
+      'Enable DLSS 2 or FSR 2.0 Quality for smooth 90+ FPS during planetary entry.',
+      'Install on an SSD to drastically cut warp-screen loading times.'
+    ]
+  },
+  {
+    id: 'ms-flight-sim-2024',
+    title: 'Microsoft Flight Simulator 2024',
+    genre: 'Flight Simulation',
+    releaseYear: 2024,
+    engine: 'Asobo Engine',
+    supportsRT: true,
+    supportsUpscaling: ['DLSS', 'FSR', 'XeSS'],
+    storageGB: 50,
+    ssdRequired: true,
+    baseRecFps: 48,
+    minimum: {
+      cpu: 'Intel Core i7-6800K or AMD Ryzen 5 2600X',
+      gpu: 'NVIDIA GeForce GTX 970 or AMD Radeon RX 5700',
+      ramGB: 16,
+      vramGB: 4
+    },
+    recommended: {
+      cpu: 'Intel Core i7-10700K or AMD Ryzen 7 2700X',
+      gpu: 'NVIDIA GeForce RTX 3080 or AMD Radeon RX 7900 XT',
+      ramGB: 32,
+      vramGB: 12
+    },
+    tuningTips: [
+      'Terrain Level of Detail (TLOD) is the #1 CPU killer near major airports: keep TLOD at 100-150 for smooth landings.',
+      'Enable DLSS 3 / FSR 3 Frame Generation to double perceived smoothness from ~45 FPS to 90 FPS.',
+      '32 GB+ RAM and 12 GB+ VRAM are strongly recommended for dense photogrammetry cities.'
+    ]
+  },
+  {
+    id: 'f1-24',
+    title: 'F1 24',
+    genre: 'Sim Racing',
+    releaseYear: 2024,
+    engine: 'EGO Engine 4.0',
+    supportsRT: true,
+    supportsUpscaling: ['DLSS', 'FSR', 'XeSS'],
+    storageGB: 100,
+    ssdRequired: true,
+    baseRecFps: 110,
+    minimum: {
+      cpu: 'Intel Core i3-2130 or AMD FX-4300',
+      gpu: 'NVIDIA GeForce GTX 1060 6GB or AMD Radeon RX 590',
+      ramGB: 8,
+      vramGB: 6
+    },
+    recommended: {
+      cpu: 'Intel Core i5-9600K or AMD Ryzen 5 2600X',
+      gpu: 'NVIDIA GeForce RTX 2070 or AMD Radeon RX 6700 XT',
+      ramGB: 16,
+      vramGB: 8
+    },
+    tuningTips: [
+      'Disable Ray-Traced DDGI and Ray-Traced Reflections during rain races for +35% FPS.',
+      'Enable DLSS Quality or FSR 2 Quality to hit locked 120+ FPS on 144Hz ultrawide monitors.',
+      'Keep Crowd and Skidmarks at Medium to reduce CPU overhead on grid starts.'
+    ]
+  },
+  {
+    id: 'assetto-corsa-competizione',
+    title: 'Assetto Corsa Competizione',
+    genre: 'Sim Racing',
+    releaseYear: 2019,
+    engine: 'Unreal Engine 4',
+    supportsRT: false,
+    supportsUpscaling: ['DLSS', 'FSR'],
+    storageGB: 50,
+    ssdRequired: true,
+    baseRecFps: 92,
+    minimum: {
+      cpu: 'Intel Core i5-4460 or AMD FX-8120',
+      gpu: 'NVIDIA GeForce GTX 460 or AMD Radeon HD 7770',
+      ramGB: 8,
+      vramGB: 4
+    },
+    recommended: {
+      cpu: 'Intel Core i5-8600K or AMD Ryzen 5 2600X',
+      gpu: 'NVIDIA GeForce GTX 1070 or AMD Radeon RX 580',
+      ramGB: 16,
+      vramGB: 8
+    },
+    tuningTips: [
+      'Visible Cars limit has a huge CPU impact in 30-car GT3 grids: cap visible opponents to 15-20.',
+      'Set Mirrors Quality to Low/Mid and Volumetric Fog to Disabled for +20% FPS in night/rain races.',
+      'Use KTAA or DLSS Quality for clean brake-marker readability.'
+    ]
+  },
+  {
+    id: 'civilization-vii',
+    title: "Sid Meier's Civilization VII",
+    genre: '4X Grand Strategy',
+    releaseYear: 2025,
+    engine: 'Firaxis LORE Engine',
+    supportsRT: false,
+    supportsUpscaling: ['FSR', 'XeSS'],
+    storageGB: 20,
+    ssdRequired: true,
+    baseRecFps: 75,
+    minimum: {
+      cpu: 'Intel Core i5-8400 or AMD Ryzen 3 1200',
+      gpu: 'NVIDIA GeForce GTX 1050 Ti or AMD Radeon RX 470',
+      ramGB: 8,
+      vramGB: 4
+    },
+    recommended: {
+      cpu: 'Intel Core i5-10400 or AMD Ryzen 5 3600X',
+      gpu: 'NVIDIA GeForce RTX 2060 or AMD Radeon RX 6600',
+      ramGB: 16,
+      vramGB: 8
+    },
+    tuningTips: [
+      'Late-game turn times depend on CPU single-core & multi-core speed rather than GPU.',
+      'Lower Leader Quality and Water Reflections to Medium on 4-6GB VRAM laptops.',
+      'Cap FPS at 60-75 Hz to keep GPU fans quiet during long strategy sessions.'
+    ]
+  },
+  {
+    id: 'cities-skylines-ii',
+    title: 'Cities: Skylines II',
+    genre: 'City Builder Simulation',
+    releaseYear: 2023,
+    engine: 'Unity DOTS',
+    supportsRT: false,
+    supportsUpscaling: ['DLSS', 'FSR'],
+    storageGB: 60,
+    ssdRequired: true,
+    baseRecFps: 44,
+    minimum: {
+      cpu: 'Intel Core i7-6700K or AMD Ryzen 5 2600X',
+      gpu: 'NVIDIA GeForce GTX 970 or AMD Radeon RX 480',
+      ramGB: 8,
+      vramGB: 4
+    },
+    recommended: {
+      cpu: 'Intel Core i5-12600K or AMD Ryzen 7 5800X',
+      gpu: 'NVIDIA GeForce RTX 3080 or AMD Radeon RX 6800 XT',
+      ramGB: 16,
+      vramGB: 10
+    },
+    tuningTips: [
+      'Disable Depth of Field, Volumetrics Quality, and Motion Blur immediately for +30% GPU FPS.',
+      'Set Level of Detail to Low/Medium and Global Illumination to Low on 8GB VRAM GPUs.',
+      'Large 200k+ citizen cities are heavily multi-core CPU bound; 8+ CPU cores help simulation speed.'
+    ]
+  },
+  {
+    id: 'kingdom-come-deliverance-2',
+    title: 'Kingdom Come: Deliverance II',
+    genre: 'Action RPG',
+    releaseYear: 2025,
+    engine: 'CryEngine',
+    supportsRT: false,
+    supportsUpscaling: ['DLSS', 'FSR'],
+    storageGB: 100,
+    ssdRequired: true,
+    baseRecFps: 64,
+    minimum: {
+      cpu: 'Intel Core i5-8400 or AMD Ryzen 5 2600',
+      gpu: 'NVIDIA GeForce GTX 1060 6GB or AMD Radeon RX 580',
+      ramGB: 16,
+      vramGB: 6
+    },
+    recommended: {
+      cpu: 'Intel Core i7-13700K or AMD Ryzen 7 7800X3D',
+      gpu: 'NVIDIA GeForce RTX 4070 or AMD Radeon RX 7800 XT',
+      ramGB: 32,
+      vramGB: 12
+    },
+    tuningTips: [
+      'CryEngine SVOGI lighting and dense Kuttenberg crowds scale heavily with CPU & GPU: use High preset over Experimental.',
+      'Enable DLSS Quality or FSR 3 Quality for +25% FPS in forested Bohemia.',
+      'Keep Object Distance and Vegetation Detail at High for smooth 60+ FPS on mid-range rigs.'
+    ]
+  },
+  {
+    id: 'dragons-dogma-2',
+    title: "Dragon's Dogma 2",
+    genre: 'Action RPG',
+    releaseYear: 2024,
+    engine: 'RE Engine',
+    supportsRT: true,
+    supportsUpscaling: ['DLSS', 'FSR'],
+    storageGB: 65,
+    ssdRequired: true,
+    baseRecFps: 56,
+    minimum: {
+      cpu: 'Intel Core i5-10600 or AMD Ryzen 5 3600',
+      gpu: 'NVIDIA GeForce GTX 1070 or AMD Radeon RX 5500 XT',
+      ramGB: 16,
+      vramGB: 8
+    },
+    recommended: {
+      cpu: 'Intel Core i7-10700 or AMD Ryzen 5 3600X',
+      gpu: 'NVIDIA GeForce RTX 2080 or AMD Radeon RX 6700',
+      ramGB: 16,
+      vramGB: 8
+    },
+    tuningTips: [
+      'Vernworth and Bakbattahl are severely CPU-bound due to NPC simulation: enable DLSS 3 / FSR 3 Frame Generation if supported.',
+      'Disable Ray Tracing and lower Shadow Quality to Medium to save VRAM and stabilize frame times.',
+      'Keep Texture Quality at High (2GB-3GB) on 8GB VRAM GPUs.'
+    ]
+  },
+  {
+    id: 'silent-hill-2-remake',
+    title: 'SILENT HILL 2',
+    genre: 'Survival Horror',
+    releaseYear: 2024,
+    engine: 'Unreal Engine 5',
+    supportsRT: true,
+    supportsUpscaling: ['DLSS', 'FSR', 'XeSS', 'TSR'],
+    storageGB: 50,
+    ssdRequired: true,
+    baseRecFps: 58,
+    minimum: {
+      cpu: 'Intel Core i7-6700K or AMD Ryzen 5 3600',
+      gpu: 'NVIDIA GeForce GTX 1070 Ti or AMD Radeon RX 5700',
+      ramGB: 16,
+      vramGB: 8
+    },
+    recommended: {
+      cpu: 'Intel Core i7-8700K or AMD Ryzen 5 3600X',
+      gpu: 'NVIDIA GeForce RTX 2080 or AMD Radeon RX 6800 XT',
+      ramGB: 16,
+      vramGB: 8
+    },
+    tuningTips: [
+      'Keep Ray Tracing Off on 8GB VRAM GPUs; Software Lumen still delivers atmospheric fog and lighting.',
+      'Set Shaders and Shadows Quality to Medium for +20% FPS in foggy South Vale streets.',
+      'Enable DLSS Quality or FSR 3 Quality for smoother traversal.'
+    ]
+  },
+  {
+    id: 'indiana-jones-great-circle',
+    title: 'Indiana Jones and the Great Circle',
+    genre: 'Action Adventure',
+    releaseYear: 2024,
+    engine: 'Motor (id Tech 7)',
+    supportsRT: true,
+    supportsUpscaling: ['DLSS', 'FSR', 'XeSS'],
+    storageGB: 120,
+    ssdRequired: true,
+    baseRecFps: 66,
+    minimum: {
+      cpu: 'Intel Core i7-10700K or AMD Ryzen 5 3600',
+      gpu: 'NVIDIA GeForce RTX 2060 Super or AMD Radeon RX 6600',
+      ramGB: 16,
+      vramGB: 8
+    },
+    recommended: {
+      cpu: 'Intel Core i7-12700K or AMD Ryzen 7 7700',
+      gpu: 'NVIDIA GeForce RTX 3080 Ti or AMD Radeon RX 7700 XT',
+      ramGB: 32,
+      vramGB: 12
+    },
+    tuningTips: [
+      'Requires a hardware Ray Tracing GPU (RTX 2060 Super / RX 6600 or newer) to launch.',
+      'On 8GB VRAM GPUs, keep Texture Pool Size at Low/Medium to prevent severe performance drops.',
+      'Enable DLSS Quality + Frame Generation (or FSR) for smooth 60-90+ FPS.'
+    ]
+  },
+  {
+    id: 'gta-vi-projected',
+    title: 'Grand Theft Auto VI (Projected)',
+    genre: 'Open World Action',
+    releaseYear: 2026,
+    engine: 'RAGE 9',
+    supportsRT: true,
+    supportsUpscaling: ['DLSS', 'FSR', 'XeSS'],
+    storageGB: 150,
+    ssdRequired: true,
+    baseRecFps: 60,
+    minimum: {
+      cpu: 'Intel Core i5-12400 or AMD Ryzen 5 5600',
+      gpu: 'NVIDIA GeForce RTX 3060 12GB or AMD Radeon RX 6700 XT',
+      ramGB: 16,
+      vramGB: 8
+    },
+    recommended: {
+      cpu: 'Intel Core i7-13700K or AMD Ryzen 7 7800X3D',
+      gpu: 'NVIDIA GeForce RTX 4070 Super or AMD Radeon RX 7800 XT',
+      ramGB: 32,
+      vramGB: 12
+    },
+    tuningTips: [
+      'Projected specs based on RAGE 9 RTGI: an NVMe SSD and 12GB+ VRAM GPU are strongly advised for 1440p High.',
+      'Expect DLSS 3.5 / FSR 3+ upscaling and Frame Generation to be key for high-refresh Leonida exploration.',
+      '32 GB system RAM will help eliminate streaming hitches in dense Vice City traffic.'
     ]
   }
 ];
