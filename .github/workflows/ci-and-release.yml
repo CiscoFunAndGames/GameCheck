@@ -102,8 +102,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path bin | Out-Null
           g++ -O2 -std=c++17 native/rigcheck_probe.cpp -o bin/rigcheck-native-probe.exe -luser32 -lgdi32 -ladvapi32 -static -s
           g++ -O2 -std=c++17 native/test_core.cpp -o bin/test-gamecheck-core.exe -luser32 -lgdi32 -ladvapi32 -lshell32 -lwinhttp -static -s
-          g++ -O2 -std=c++17 -mwindows native/gamecheck_desktop.cpp -o bin/GameCheck.exe -lgdiplus -luxtheme -lcomctl32 -lcomdlg32 -lshell32 -luser32 -lgdi32 -ladvapi32 -lole32 -luuid -lwinhttp -static -s
+          windres native/gamecheck.rc -O coff -o native/gamecheck_res.o
+          g++ -O2 -std=c++17 -mwindows native/gamecheck_desktop.cpp native/gamecheck_res.o -o bin/GameCheck.exe -lgdiplus -luxtheme -lcomctl32 -lcomdlg32 -lshell32 -luser32 -lgdi32 -ladvapi32 -lole32 -luuid -lwinhttp -static -s
           .\bin\rigcheck-native-probe.exe
+          .\bin\test-gamecheck-core.exe
           .\bin\GameCheck.exe --smoke-test
 
       - name: Build SHA-256 Live Patch Bundle & Native C++ Windows Installer
@@ -152,21 +154,28 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Install Linux System Dependencies (g++, pciutils, mesa-utils, x11-xserver-utils, unzip)
+      - name: Install Linux System Dependencies (g++, libgtk-3-dev, pkg-config, pciutils, mesa-utils, x11-xserver-utils, unzip)
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ pciutils mesa-utils x11-xserver-utils unzip zip
+          sudo apt-get install -y g++ libgtk-3-dev pkg-config pciutils mesa-utils x11-xserver-utils unzip zip
 
       - name: Install NPM Dependencies
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-      - name: Compile C++17 Native Display & Driver Probe (Linux)
+      - name: Compile C++17 Native Display & Driver Probe + GTK3 Desktop GUI (Linux)
         run: |
           mkdir -p bin
           g++ -O2 -std=c++17 native/rigcheck_probe.cpp -o bin/rigcheck-native-probe
           chmod +x bin/rigcheck-native-probe
           ./bin/rigcheck-native-probe || true
+          if pkg-config --exists gtk+-3.0; then
+            g++ -O2 -std=c++17 -DGAMECHECK_USE_GTK native/gamecheck_desktop.cpp -o bin/gamecheck $(pkg-config --cflags --libs gtk+-3.0) -lpthread
+          else
+            g++ -O2 -std=c++17 native/gamecheck_desktop.cpp -o bin/gamecheck -lpthread
+          fi
+          chmod +x bin/gamecheck
+          ./bin/gamecheck --smoke-test
 
       - name: Build SHA-256 Live Patch Bundle & Linux Self-Contained Installer
         run: |
