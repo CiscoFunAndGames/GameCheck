@@ -459,7 +459,7 @@ async function main() {
       assert.ok(/^\d{4}\.\d{2}\.\d{2}$/.test(smokeJson.calver), 'Expected valid CalVer YYYY.MM.DD');
       assert.ok(/^\d{4}\.\d{2}\.\d{2}(\.\d+)?$/.test(smokeJson.fullVersion), 'Expected valid full CalVer');
       assert.strictEqual(smokeJson.runtime, 'native-cpp17-win32-gdiplus');
-      assert.strictEqual(smokeJson.catalogGames, 24);
+      assert.ok(smokeJson.catalogGames >= 50, 'Expected >= 50 catalog games');
       assert.ok(smokeJson.cpuDetected && smokeJson.gpuDetected && smokeJson.displayDetected);
       console.log(
         `  ✓ bin/GameCheck.exe --smoke-test -> ${smokeJson.appName} v${smokeJson.fullVersion} [${smokeJson.runtime}] (${smokeJson.cpuDetected} | ${smokeJson.gpuDetected} | ${smokeJson.displayDetected})`
