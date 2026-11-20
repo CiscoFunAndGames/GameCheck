@@ -26,6 +26,7 @@ using std::max;
 #include <tlhelp32.h>
 #include <unordered_map>
 #include <cmath>
+#include <thread>
 #endif
 
 #include "gamecheck_core.hpp"
@@ -78,7 +79,7 @@ enum ControlId {
     IDC_BTN_SAVE_INI     = 1030,
     IDC_BTN_SAVE_JSON    = 1031,
     IDC_BTN_SAVE_MD      = 1032,
-    IDC_BTN_OPEN_FOLDER  = 1033,
+    IDC_BTN_COPY_SUMMARY = 1033,
     IDC_BTN_FIND_DEALS   = 1034,
     IDC_BTN_TOGGLE_DETAIL= 1036,
     IDC_LIST_DETAIL      = 1037,
@@ -90,6 +91,7 @@ enum ControlId {
     IDC_DLG_PASTE_CLIP   = 2004,
     IDC_DLG_OPEN_BROWSER = 2005,
     IDC_DLG_SEARCH_DEALS = 2006,
+    IDC_DLG_CHECK_UPDATES = 2007,
     IDC_DLG_PICK_1       = 2010,
     IDC_DLG_PICK_2       = 2011,
     IDC_DLG_PICK_3       = 2012,
@@ -137,7 +139,7 @@ struct AppState {
     HWND btnSaveIni = nullptr;
     HWND btnSaveJson = nullptr;
     HWND btnSaveMd = nullptr;
-    HWND btnOpenFolder = nullptr;
+    HWND btnCopySummary = nullptr;
     HWND btnFindDeals = nullptr;
 
     HFONT hFontUi = nullptr;
@@ -160,7 +162,7 @@ struct AppState {
     std::vector<int> filteredIndices;
     int selectedGameIdx = 0;
     int activeOptMode = GameCheck::OPT_MODE_OPTIMAL;
-    int activeTab = 0; // 0 = Quick Settings, 1 = PC Match & Impact, 2 = Driver App, 3 = Tips & Drives
+    int activeTab = 0; // 0 = Quick Settings, 1 = PC Match & Impact, 2 = Driver App, 3 = Upscaling & Tips
     std::string activeCountry = "AR";
 
     GameCheck::GameAnalysis currentAnalysis;
@@ -169,6 +171,7 @@ struct AppState {
 
     // 60fps UI Animation State (0% idle CPU: KillTimer when settled)
     static constexpr UINT_PTR TIMER_UI_ANIM = 1;
+    static constexpr UINT_PTR TIMER_COPY_CONFIRM = 3003;
     bool uiAnimTimerActive = false;
     float tabAnimT = 1.0f;
     float barAnimT = 1.0f;
@@ -178,10 +181,54 @@ struct AppState {
     std::unordered_map<HWND, float> btnHoverCurrent;
     std::unordered_map<HWND, float> btnHoverTarget;
     std::unordered_map<HWND, bool> btnHoverTracked;
+
+    // Auto-Updater State
+    static constexpr UINT WM_APP_UPDATE_RESULT = WM_APP + 10;
+    GameCheck::UpdateCheckResult updateState;
+    bool updateCheckInProgress = false;
+    std::wstring updatePillText = L"Checking updates...";
+    Color updatePillColor = CyberPalette::TextMuted;
+    HWND hwndUpdatesDlgLabel = nullptr;
 };
 
 static AppState g_app;
 static WNDPROC g_origCyberBtnProc = nullptr;
+
+static std::string getAppRootDir() {
+    wchar_t exeBuf[MAX_PATH] = {};
+    DWORD len = GetModuleFileNameW(nullptr, exeBuf, MAX_PATH);
+    if (len == 0 || len >= MAX_PATH) return ".";
+    std::filesystem::path exePath(exeBuf);
+    std::filesystem::path exeDir = exePath.parent_path();
+    std::string dirName = exeDir.filename().string();
+    for (char& c : dirName) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    if (dirName == "bin" && exeDir.has_parent_path()) {
+        return exeDir.parent_path().string();
+    }
+    return exeDir.string();
+}
+
+static void startAsyncUpdateCheck(HWND hwndNotify, bool autoApply) {
+    if (!hwndNotify || !IsWindow(hwndNotify)) return;
+    g_app.updateCheckInProgress = true;
+    g_app.updatePillText = g_app.isSpanish ? L"Buscando..." : L"Checking...";
+    g_app.updatePillColor = CyberPalette::TextMuted;
+    InvalidateRect(hwndNotify, nullptr, FALSE);
+
+    std::string appDir = getAppRootDir();
+    std::thread([hwndNotify, autoApply, appDir]() {
+        GameCheck::UpdateCheckResult res = GameCheck::checkForAppUpdates(GameCheck::FULL_VERSION, appDir);
+        if (autoApply && res.updateAvailable) {
+            GameCheck::applyAutoUpdate(res, appDir);
+        }
+        if (IsWindow(hwndNotify)) {
+            PostMessageW(hwndNotify, AppState::WM_APP_UPDATE_RESULT, 0,
+                         reinterpret_cast<LPARAM>(new GameCheck::UpdateCheckResult(res)));
+        }
+    }).detach();
+}
 
 static Color lerpColor(Color a, Color b, float t) {
     t = std::clamp(t, 0.0f, 1.0f);
@@ -596,16 +643,17 @@ static void applyLanguageToUi() {
 
     if (g_app.hwndSearch) {
         SendMessageW(g_app.hwndSearch, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(
-            tr(L"Search 24+ games, genres, engines...", L"Buscar 24+ juegos, g\x00E9neros, motores...")));
+            tr(L"Search 50+ games, genres, engines...", L"Buscar 50+ juegos, g\x00E9neros, motores...")));
     }
 
     if (g_app.hwndFilter) {
         int curSel = static_cast<int>(SendMessageW(g_app.hwndFilter, CB_GETCURSEL, 0, 0));
         if (curSel < 0) curSel = 0;
         SendMessageW(g_app.hwndFilter, CB_RESETCONTENT, 0, 0);
-        SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"All Games (Installed First)", L"Todos (Instalados Primero)")));
-        SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"Installed Only", L"Solo Instalados")));
-        SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"Can Run Recommended+", L"Corre Recomendado+")));
+        SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"All 50+ Games", L"Todos (50+ Juegos)")));
+        SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"Ultra / Recommended", L"Ultra / Recomendado")));
+        SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"Competitive / High FPS", L"Competitivo / Altos FPS")));
+        SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"Story / AAA", L"Historia / AAA")));
         SendMessageW(g_app.hwndFilter, CB_SETCURSEL, curSel, 0);
     }
 
@@ -626,13 +674,13 @@ static void applyLanguageToUi() {
     if (g_app.btnTabQuick)  SetWindowTextW(g_app.btnTabQuick,  tr(L"Quick Settings", L"Ajustes R\x00E1pidos"));
     if (g_app.btnTabMatch)  SetWindowTextW(g_app.btnTabMatch,  tr(L"PC Match & Impact", L"Hardware e Impacto"));
     if (g_app.btnTabDriver) SetWindowTextW(g_app.btnTabDriver, tr(L"Driver App", L"App de Drivers"));
-    if (g_app.btnTabTips)   SetWindowTextW(g_app.btnTabTips,   tr(L"Tips & Drives", L"Consejos y Discos"));
+    if (g_app.btnTabTips)   SetWindowTextW(g_app.btnTabTips,   tr(L"Upscaling & Tips", L"Escalado y Consejos"));
     if (g_app.btnSaveDrvMd) SetWindowTextW(g_app.btnSaveDrvMd, tr(L"Save Driver Guide (.MD)", L"Guardar Gu\x00EDa Drivers (.MD)"));
 
-    if (g_app.btnSaveIni)    SetWindowTextW(g_app.btnSaveIni,    tr(L"Save .INI", L"Guardar .INI"));
-    if (g_app.btnSaveJson)   SetWindowTextW(g_app.btnSaveJson,   tr(L"Save .JSON", L"Guardar .JSON"));
-    if (g_app.btnSaveMd)     SetWindowTextW(g_app.btnSaveMd,     tr(L"Save Guide (.MD)", L"Guardar Gu\x00EDa (.MD)"));
-    if (g_app.btnOpenFolder) SetWindowTextW(g_app.btnOpenFolder, tr(L"Open Game Folder", L"Abrir Carpeta"));
+    if (g_app.btnSaveIni)     SetWindowTextW(g_app.btnSaveIni,     tr(L"Save .INI", L"Guardar .INI"));
+    if (g_app.btnSaveJson)    SetWindowTextW(g_app.btnSaveJson,    tr(L"Save .JSON", L"Guardar .JSON"));
+    if (g_app.btnSaveMd)      SetWindowTextW(g_app.btnSaveMd,      tr(L"Save Guide (.MD)", L"Guardar Gu\x00EDa (.MD)"));
+    if (g_app.btnCopySummary) SetWindowTextW(g_app.btnCopySummary, tr(L"Copy Summary", L"Copiar Resumen"));
 
     populateGameListView();
     if (g_app.hwndMain) {
@@ -673,10 +721,19 @@ static void populateGameListView() {
                 continue;
             }
         }
+        bool isCompetitive = (game.baseRecFps >= 100) ||
+            GameCheck::containsIgnoreCase(game.genre, "Competitive") ||
+            GameCheck::containsIgnoreCase(game.genre, "Tactical") ||
+            GameCheck::containsIgnoreCase(game.genre, "Battle Royale") ||
+            GameCheck::containsIgnoreCase(game.genre, "MOBA") ||
+            GameCheck::containsIgnoreCase(game.genre, "Hero Shooter") ||
+            GameCheck::containsIgnoreCase(game.genre, "Esports");
         if (filterMode == 1) {
-            if (!game.installed && game.playStatus == "CATALOG") continue;
-        } else if (filterMode == 2) {
             if (!ga.canRunRecommended) continue;
+        } else if (filterMode == 2) {
+            if (!isCompetitive) continue;
+        } else if (filterMode == 3) {
+            if (isCompetitive) continue;
         }
 
         g_app.filteredIndices.push_back(static_cast<int>(i));
@@ -740,9 +797,9 @@ static void layoutChildControls(HWND hwnd) {
     int topBarH = 136;
     int margin = 14;
 
-    // Language selector next to Read-Only pill in header
+    // Language selector next to update pill in header
     if (g_app.hwndLang) {
-        MoveWindow(g_app.hwndLang, 404, 9, 114, 120, TRUE);
+        MoveWindow(g_app.hwndLang, 452, 9, 94, 120, TRUE);
     }
 
     // Top-right action buttons (6 clear, friendly buttons)
@@ -831,13 +888,13 @@ static void layoutChildControls(HWND hwnd) {
     // Bottom Action Bar on Right Pane
     int gap = 8;
     int curX = rightPaneX;
-    if (g_app.btnSaveIni && g_app.btnSaveJson && g_app.btnSaveMd && g_app.btnOpenFolder) {
+    if (g_app.btnSaveIni && g_app.btnSaveJson && g_app.btnSaveMd && g_app.btnCopySummary) {
         int btnW = std::max(100, (rightPaneW - gap * 3) / 4);
-        MoveWindow(g_app.btnSaveIni,    curX, botBtnY, btnW, 34, TRUE); curX += btnW + gap;
-        MoveWindow(g_app.btnSaveJson,   curX, botBtnY, btnW, 34, TRUE); curX += btnW + gap;
-        MoveWindow(g_app.btnSaveMd,     curX, botBtnY, btnW, 34, TRUE); curX += btnW + gap;
+        MoveWindow(g_app.btnSaveIni,     curX, botBtnY, btnW, 34, TRUE); curX += btnW + gap;
+        MoveWindow(g_app.btnSaveJson,    curX, botBtnY, btnW, 34, TRUE); curX += btnW + gap;
+        MoveWindow(g_app.btnSaveMd,      curX, botBtnY, btnW, 34, TRUE); curX += btnW + gap;
         int lastW = std::max(btnW, (rightPaneX + rightPaneW) - curX);
-        MoveWindow(g_app.btnOpenFolder, curX, botBtnY, lastW, 34, TRUE);
+        MoveWindow(g_app.btnCopySummary, curX, botBtnY, lastW, 34, TRUE);
     }
 
     float tx = 0.0f, tw = 0.0f;
@@ -1064,15 +1121,21 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
     g.DrawString(L"GameCheck", -1, &fontTitle, PointF(14.0f, 8.0f), &yellowBrush);
 
     // Version Pill
-    RectF verRect(128.0f, 11.0f, 104.0f, 22.0f);
+    RectF verRect(120.0f, 11.0f, 96.0f, 22.0f);
     DrawCyberPanel(g, verRect, Color(255, 24, 22, 8), CyberPalette::CyberYellow, CyberPalette::CyberYellow, 5.0f, false);
     std::wstring wVer = L"v" + GameCheck::utf8ToWide(GameCheck::FULL_VERSION);
     g.DrawString(wVer.c_str(), -1, &fontPill, verRect, &centerFmt, &yellowBrush);
 
     // Status Pill
-    RectF safeRect(240.0f, 11.0f, 156.0f, 22.0f);
+    RectF safeRect(222.0f, 11.0f, 116.0f, 22.0f);
     DrawCyberPanel(g, safeRect, Color(255, 8, 22, 28), CyberPalette::NeuralCyan, CyberPalette::NeuralCyan, 5.0f, false);
-    g.DrawString(tr(L"Read-Only \x2022 Non-Invasive", L"Solo Lectura \x2022 Seguro"), -1, &fontPill, safeRect, &centerFmt, &cyanBrush);
+    g.DrawString(tr(L"Read-Only \x2022 Safe", L"Solo Lectura \x2022 Seguro"), -1, &fontPill, safeRect, &centerFmt, &cyanBrush);
+
+    // Live Auto-Update Status Pill
+    RectF updRect(344.0f, 11.0f, 102.0f, 22.0f);
+    DrawCyberPanel(g, updRect, Color(255, 12, 20, 18), g_app.updatePillColor, g_app.updatePillColor, 5.0f, false);
+    SolidBrush updBrush(g_app.updatePillColor);
+    g.DrawString(g_app.updatePillText.c_str(), -1, &fontPill, updRect, &centerFmt, &updBrush);
 
     // 4 Hardware Cards
     int cardY = 46;
@@ -1514,51 +1577,92 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
         }
     }
     // =========================================================================
-    // TAB 3: TIPS & DRIVES
+    // TAB 3: UPSCALING & TIPS
     // =========================================================================
     else {
         GameCheck::DriverAdvisorResult drv = GameCheck::getDriverAppRecommendations(g_app.activeSpecs, game, g_app.activeOptMode);
+        std::vector<GameCheck::UpscaleTierInfo> upMatrix = GameCheck::computeUpscalingMatrix(g_app.activeSpecs, game, g_app.activeOptMode);
 
-        REAL tipsH = std::max(130.0f, (botBtnTop - curY - 12.0f) * 0.52f);
-        RectF tipsCard(rx, curY, rw, tipsH);
+        // 1) Upscaling & Resolution Math Card (4 tiers)
+        REAL upH = 136.0f;
+        RectF upCard(rx, curY, rw, upH);
+        DrawCyberPanel(g, upCard, CyberPalette::PanelSurface, CyberPalette::BorderSubtle, CyberPalette::NeuralCyan, 9.0f, true);
+
+        int dispW = g_app.activeSpecs.display.width > 0 ? g_app.activeSpecs.display.width : 1920;
+        int dispH = g_app.activeSpecs.display.height > 0 ? g_app.activeSpecs.display.height : 1080;
+        int dispHz = g_app.activeSpecs.display.refreshRateHz > 0 ? g_app.activeSpecs.display.refreshRateHz : 60;
+        std::wstring wUpHdr = std::wstring(tr(L"Upscaling & Resolution Math \x2022 ", L"Escalado y Resoluci\x00F3n Interna \x2022 ")) +
+            std::to_wstring(dispW) + L"x" + std::to_wstring(dispH) + L" @ " + std::to_wstring(dispHz) + L"Hz";
+        g.DrawString(wUpHdr.c_str(), -1, &fontSection, RectF(rx + 14.0f, curY + 8.0f, rw - 28.0f, 22.0f), &ellipsisFmt, &cyanBrush);
+
+        REAL uy = curY + 34.0f;
+        for (size_t i = 0; i < upMatrix.size() && i < 4; ++i) {
+            const auto& t = upMatrix[i];
+            if (i % 2 == 1) {
+                SolidBrush zebra(Color(16, 255, 255, 255));
+                g.FillRectangle(&zebra, rx + 8.0f, uy, rw - 16.0f, 22.0f);
+            }
+            std::wstring wTier = GameCheck::utf8ToWide(t.tierName);
+            std::wstring wRender = GameCheck::utf8ToWide(t.renderLabel);
+            std::wstring wFps = L"~" + std::to_wstring(t.estimatedFpsAvg) + L" FPS";
+            std::wstring wVram = t.vramSavedMB > 0
+                ? (L"-" + std::to_wstring(t.vramSavedMB) + L" MB VRAM")
+                : std::wstring(tr(L"Baseline", L"Base"));
+            std::wstring wRec = GameCheck::utf8ToWide(t.recommendation);
+
+            g.DrawString(wTier.c_str(), -1, &fontTableBold, RectF(rx + 14.0f, uy + 2.0f, 146.0f, 19.0f), &ellipsisFmt, &whiteBrush);
+            g.DrawString(wRender.c_str(), -1, &fontTable, RectF(rx + 164.0f, uy + 2.0f, 168.0f, 19.0f), &ellipsisFmt, &cyanBrush);
+            g.DrawString(wFps.c_str(), -1, &fontTableBold, RectF(rx + 336.0f, uy + 2.0f, 84.0f, 19.0f), &ellipsisFmt, &greenBrush);
+            g.DrawString(wVram.c_str(), -1, &fontTable, RectF(rx + 424.0f, uy + 2.0f, 108.0f, 19.0f), &ellipsisFmt,
+                t.vramSavedMB > 0 ? &yellowBrush : &mutedBrush);
+            if (rw > 560.0f) {
+                g.DrawString(wRec.c_str(), -1, &fontTable, RectF(rx + 536.0f, uy + 2.0f, rw - 550.0f, 19.0f), &ellipsisFmt, &mutedBrush);
+            }
+            uy += 23.0f;
+        }
+
+        // 2) Engine & Performance Tuning Tips Card
+        REAL tipsY = curY + upH + 8.0f;
+        REAL tipsH = std::max(98.0f, (botBtnTop - tipsY - 8.0f) * 0.48f);
+        RectF tipsCard(rx, tipsY, rw, tipsH);
         DrawCyberPanel(g, tipsCard, CyberPalette::PanelSurface, CyberPalette::BorderSubtle, CyberPalette::CyberYellow, 9.0f, true);
 
         std::wstring wTipsHdr = std::wstring(tr(L"Engine & Performance Tuning Tips \x2022 ", L"Consejos de Rendimiento \x2022 ")) +
             GameCheck::utf8ToWide(game.title + " (" + game.engine + ")");
-        g.DrawString(wTipsHdr.c_str(), -1, &fontSection, RectF(rx + 14.0f, curY + 10.0f, rw - 28.0f, 22.0f), &ellipsisFmt, &yellowBrush);
+        g.DrawString(wTipsHdr.c_str(), -1, &fontSection, RectF(rx + 14.0f, tipsY + 8.0f, rw - 28.0f, 22.0f), &ellipsisFmt, &yellowBrush);
 
-        REAL ty = curY + 40.0f;
+        REAL ty = tipsY + 34.0f;
         const auto& tips = an.tuningTips.empty() ? game.tuningTips : an.tuningTips;
         if (tips.empty()) {
             g.DrawString(tr(
                 L"\x2022 Keep GPU drivers up to date and close heavy background browser tabs before launching.",
                 L"\x2022 Mant\x00E9n los drivers de GPU actualizados y cierra pesta\x00F1as pesadas antes de jugar."
-            ), -1, &fontTable, RectF(rx + 16.0f, ty, rw - 32.0f, 36.0f), &wrapFmt, &whiteBrush);
+            ), -1, &fontTable, RectF(rx + 16.0f, ty, rw - 32.0f, 32.0f), &wrapFmt, &whiteBrush);
         } else {
-            for (size_t t = 0; t < tips.size() && ty + 28.0f < curY + tipsH - 8.0f; ++t) {
+            for (size_t t = 0; t < tips.size() && ty + 24.0f < tipsY + tipsH - 6.0f; ++t) {
                 std::wstring wTip = L"\x2022  " + GameCheck::utf8ToWide(tips[t]);
-                g.DrawString(wTip.c_str(), -1, &fontTable, RectF(rx + 16.0f, ty, rw - 32.0f, 36.0f), &wrapFmt, &whiteBrush);
-                ty += 36.0f;
+                g.DrawString(wTip.c_str(), -1, &fontTable, RectF(rx + 16.0f, ty, rw - 32.0f, 30.0f), &wrapFmt, &whiteBrush);
+                ty += 30.0f;
             }
         }
 
-        // Storage & Drive Placement Card
-        REAL storY = curY + tipsH + 10.0f;
-        REAL storH = std::max(120.0f, botBtnTop - storY);
+        // 3) Storage & Drive Placement Card
+        REAL storY = tipsY + tipsH + 8.0f;
+        REAL storH = std::max(96.0f, botBtnTop - storY);
         RectF storCard(rx, storY, rw, storH);
         DrawCyberPanel(g, storCard, CyberPalette::PanelSurface, CyberPalette::BorderSubtle, CyberPalette::AcidGreen, 9.0f, true);
 
         std::wstring wStorHdr = std::wstring(tr(L"Storage & Drive Placement \x2022 Game Size: ", L"Almacenamiento y Discos \x2022 Tama\x00F1o: ")) +
             std::to_wstring(game.storageGB) + L" GB (" +
             (game.ssdRequired ? tr(L"SSD Recommended", L"SSD Recomendado") : tr(L"HDD/SSD OK", L"HDD/SSD OK")) + L")";
-        g.DrawString(wStorHdr.c_str(), -1, &fontSection, RectF(rx + 14.0f, storY + 10.0f, rw - 28.0f, 22.0f), &ellipsisFmt, &greenBrush);
+        g.DrawString(wStorHdr.c_str(), -1, &fontSection, RectF(rx + 14.0f, storY + 8.0f, rw - 28.0f, 22.0f), &ellipsisFmt, &greenBrush);
 
         std::wstring wDriveAdvice = GameCheck::utf8ToWide(drv.storageAdvice);
-        g.DrawString(wDriveAdvice.c_str(), -1, &fontTable, RectF(rx + 14.0f, storY + 36.0f, rw - 28.0f, 34.0f), &wrapFmt, &cyanBrush);
+        g.DrawString(wDriveAdvice.c_str(), -1, &fontTable, RectF(rx + 14.0f, storY + 32.0f, rw - 28.0f, 30.0f), &wrapFmt, &cyanBrush);
 
-        REAL dy = storY + 76.0f;
+        REAL dy = storY + 66.0f;
         const auto& drives = g_app.activeSpecs.storage.allDrives;
-        for (size_t i = 0; i < drives.size() && dy + 28.0f <= storY + storH - 8.0f; ++i) {
+        for (size_t i = 0; i < drives.size() && dy + 22.0f <= storY + storH - 6.0f; ++i) {
             const auto& d = drives[i];
             bool enough = d.freeGB >= game.storageGB;
             Color dCol = enough ? CyberPalette::AcidGreen : CyberPalette::NeonCrimson;
@@ -1576,7 +1680,7 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
                 int animUsedPct = static_cast<int>(std::round(usedPct * easedBar));
                 DrawSegmentedCyberBar(g, RectF(barX, dy + 5.0f, barW, 8.0f), animUsedPct, dCol, 20);
             }
-            dy += 28.0f;
+            dy += 24.0f;
         }
     }
 
@@ -1752,7 +1856,15 @@ static DealsDlgState g_dealsDlg;
 static void refreshDealsDialogResults(HWND dlg) {
     int cIdx = static_cast<int>(SendMessageW(g_dealsDlg.comboCountry, CB_GETCURSEL, 0, 0));
     const char* codes[] = { "AR", "US", "BR", "CL", "MX", "ES" };
-    if (cIdx >= 0 && cIdx < 6) g_app.activeCountry = codes[cIdx];
+    if (cIdx >= 0 && cIdx < 6 && g_app.activeCountry != codes[cIdx]) {
+        g_app.activeCountry = codes[cIdx];
+        GameCheck::UserPreferences prefs = GameCheck::loadUserPreferences();
+        prefs.isSpanish = g_app.isSpanish;
+        prefs.activeOptMode = g_app.activeOptMode;
+        prefs.detailedQuickView = g_app.detailedQuickView;
+        prefs.activeCountry = g_app.activeCountry;
+        GameCheck::saveUserPreferences(prefs);
+    }
 
     wchar_t qBuf[256] = {};
     GetWindowTextW(g_dealsDlg.editQuery, qBuf, 255);
@@ -2332,20 +2444,43 @@ static void showSteamParserDialog(HWND parent) {
 // =============================================================================
 // 4. UPDATES & PATCH INFO DIALOG
 // =============================================================================
+static std::wstring buildUpdatesInfoText() {
+    std::wstring updLine = L"Update Status: ";
+    if (g_app.updateCheckInProgress) {
+        updLine += L"Checking GitHub Releases & local patches...";
+    } else if (!g_app.updateState.checked) {
+        updLine += L"Not checked yet";
+    } else if (g_app.updateState.applied) {
+        updLine += L"Updated to v" + GameCheck::utf8ToWide(g_app.updateState.latestVersion) +
+                   (g_app.updateState.restartRequired ? L" (Relaunching...)" : L"");
+    } else if (g_app.updateState.updateAvailable) {
+        updLine += L"Available: v" + GameCheck::utf8ToWide(g_app.updateState.latestVersion) +
+                   L" (" + GameCheck::utf8ToWide(g_app.updateState.source) + L")";
+    } else if (!g_app.updateState.errorMessage.empty()) {
+        updLine += GameCheck::utf8ToWide(g_app.updateState.errorMessage);
+    } else {
+        updLine += L"Up to date (v" + GameCheck::utf8ToWide(GameCheck::FULL_VERSION) + L")";
+    }
+
+    return L"Version: v" + GameCheck::utf8ToWide(GameCheck::FULL_VERSION) + L"\r\n" +
+           updLine + L"\r\n" +
+           L"Mode: 100% Read-Only \x2022 Non-Invasive \x2022 Anti-Cheat Safe \x2022 0% Idle CPU\r\n" +
+           L"Hardware Scan Speed: " + std::to_wstring(static_cast<int>(g_app.detectedSpecs.scanDurationMs)) + L" ms\r\n" +
+           L"Built-in Game Catalog: " + std::to_wstring(GameCheck::getCatalogGames().size()) + L" Titles + Installed Steam/Epic/Xbox Detection\r\n\r\n" +
+           L"Auto-checks GitHub Releases & local .rigpatch.json bundles on startup.";
+}
+
 static LRESULT CALLBACK UpdatesDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_CREATE: {
-            std::wstring info =
-                L"Version: v" + GameCheck::utf8ToWide(GameCheck::FULL_VERSION) + L"\r\n"
-                L"Mode: 100% Read-Only \x2022 Non-Invasive \x2022 Anti-Cheat Safe \x2022 0% Idle CPU\r\n"
-                L"Hardware Scan Speed: " + std::to_wstring(static_cast<int>(g_app.detectedSpecs.scanDurationMs)) + L" ms\r\n"
-                L"Built-in Game Catalog: " + std::to_wstring(GameCheck::getCatalogGames().size()) + L" Titles + Installed Steam/Epic/Xbox Detection\r\n\r\n"
-                L"You can verify and apply a signed .rigpatch.json live update file below.";
-            HWND lbl = makeDlgLabel(hwnd, info.c_str(), 18, 54, 480, 120);
+            std::wstring info = buildUpdatesInfoText();
+            HWND lbl = makeDlgLabel(hwnd, info.c_str(), 18, 52, 540, 146);
             SendMessageW(lbl, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.hFontUi), TRUE);
+            g_app.hwndUpdatesDlgLabel = lbl;
 
-            makeDlgButton(hwnd, tr(L"Apply Patch File (.rigpatch.json)...", L"Aplicar Parche (.rigpatch.json)..."), 18, 190, 260, 34, IDC_DLG_OK);
-            makeDlgButton(hwnd, tr(L"Close", L"Cerrar"), 388, 190, 110, 34, IDC_DLG_CANCEL);
+            makeDlgButton(hwnd, tr(L"Check & Apply Updates Now", L"Buscar y Aplicar Actualizaciones"), 18, 210, 224, 34, IDC_DLG_CHECK_UPDATES);
+            makeDlgButton(hwnd, tr(L"Apply Patch File...", L"Aplicar Parche..."), 250, 210, 178, 34, IDC_DLG_OK);
+            makeDlgButton(hwnd, tr(L"Close", L"Cerrar"), 436, 210, 122, 34, IDC_DLG_CANCEL);
             return 0;
         }
         case WM_DRAWITEM:
@@ -2360,6 +2495,13 @@ static LRESULT CALLBACK UpdatesDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             return handleDarkDlgColors(msg, wParam);
         case WM_COMMAND: {
             int id = LOWORD(wParam);
+            if (id == IDC_DLG_CHECK_UPDATES) {
+                startAsyncUpdateCheck(g_app.hwndMain, true);
+                if (g_app.hwndUpdatesDlgLabel && IsWindow(g_app.hwndUpdatesDlgLabel)) {
+                    SetWindowTextW(g_app.hwndUpdatesDlgLabel, buildUpdatesInfoText().c_str());
+                }
+                return 0;
+            }
             if (id == IDC_DLG_OK) {
                 wchar_t fileBuf[MAX_PATH] = {};
                 OPENFILENAMEW ofn = {};
@@ -2370,19 +2512,36 @@ static LRESULT CALLBACK UpdatesDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 ofn.nMaxFile = MAX_PATH;
                 ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
                 if (GetOpenFileNameW(&ofn)) {
-                    std::wstring okMsg = L"Verified patch bundle:\n" + std::wstring(fileBuf) +
-                                         L"\n\nRun `node scripts/create-patch.js --apply` or the installer to commit live files.";
-                    MessageBoxW(hwnd, okMsg.c_str(), L"GameCheck — Patch Verified", MB_OK | MB_ICONINFORMATION);
+                    GameCheck::UpdateCheckResult manualRes;
+                    manualRes.updateAvailable = true;
+                    manualRes.isLocalPatch = true;
+                    manualRes.currentVersion = GameCheck::FULL_VERSION;
+                    manualRes.localPatchPath = GameCheck::wideToUtf8(fileBuf);
+                    if (GameCheck::applyAutoUpdate(manualRes, getAppRootDir())) {
+                        g_app.updateState = manualRes;
+                        g_app.updatePillText = L"Updated!";
+                        g_app.updatePillColor = CyberPalette::AcidGreen;
+                        InvalidateRect(g_app.hwndMain, nullptr, FALSE);
+                        if (g_app.hwndUpdatesDlgLabel && IsWindow(g_app.hwndUpdatesDlgLabel)) {
+                            SetWindowTextW(g_app.hwndUpdatesDlgLabel, buildUpdatesInfoText().c_str());
+                        }
+                        MessageBoxW(hwnd, L"Verified and applied SHA-256 patch bundle successfully.", L"GameCheck — Patch Applied", MB_OK | MB_ICONINFORMATION);
+                    } else {
+                        std::wstring errMsg = L"Patch verification failed:\n" + GameCheck::utf8ToWide(manualRes.errorMessage);
+                        MessageBoxW(hwnd, errMsg.c_str(), L"GameCheck — Patch Error", MB_OK | MB_ICONERROR);
+                    }
                 }
                 return 0;
             }
             if (id == IDC_DLG_CANCEL) {
+                g_app.hwndUpdatesDlgLabel = nullptr;
                 DestroyWindow(hwnd);
                 return 0;
             }
             break;
         }
         case WM_CLOSE:
+            g_app.hwndUpdatesDlgLabel = nullptr;
             DestroyWindow(hwnd);
             return 0;
     }
@@ -2401,10 +2560,31 @@ static void showUpdatesDialog(HWND parent) {
     HWND dlg = CreateWindowExW(
         WS_EX_DLGMODALFRAME, wc.lpszClassName, L"GameCheck — Updates & Info",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
-        0, 0, 532, 276, parent, nullptr, wc.hInstance, nullptr
+        0, 0, 584, 298, parent, nullptr, wc.hInstance, nullptr
     );
     centerWindowToParent(dlg, parent);
     runModalLoop(parent, dlg);
+}
+
+// =============================================================================
+// Persistent Preferences Helper
+// =============================================================================
+static void saveCurrentPreferences(HWND hwnd) {
+    GameCheck::UserPreferences prefs = GameCheck::loadUserPreferences();
+    prefs.isSpanish = g_app.isSpanish;
+    prefs.activeOptMode = g_app.activeOptMode;
+    prefs.detailedQuickView = g_app.detailedQuickView;
+    prefs.activeCountry = g_app.activeCountry;
+    if (hwnd && IsWindow(hwnd) && !IsIconic(hwnd) && !IsZoomed(hwnd)) {
+        RECT rc = {};
+        if (GetWindowRect(hwnd, &rc)) {
+            prefs.windowX = rc.left;
+            prefs.windowY = rc.top;
+            prefs.windowW = rc.right - rc.left;
+            prefs.windowH = rc.bottom - rc.top;
+        }
+    }
+    GameCheck::saveUserPreferences(prefs);
 }
 
 // =============================================================================
@@ -2443,7 +2623,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             SendMessageW(g_app.hwndLang, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.hFontUiBold), TRUE);
             SendMessageW(g_app.hwndLang, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"EN | English"));
             SendMessageW(g_app.hwndLang, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"ES | Espa\x00F1ol"));
-            SendMessageW(g_app.hwndLang, CB_SETCURSEL, 0, 0);
+            SendMessageW(g_app.hwndLang, CB_SETCURSEL, g_app.isSpanish ? 1 : 0, 0);
 
             // Top Action Bar Buttons
             g_app.btnRescan     = makeCyberBtn(L"Rescan PC", IDC_BTN_RESCAN);
@@ -2458,15 +2638,16 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                                                0, 0, 180, 28, hwnd, reinterpret_cast<HMENU>(IDC_EDIT_SEARCH),
                                                GetModuleHandleW(nullptr), nullptr);
             SendMessageW(g_app.hwndSearch, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.hFontUi), TRUE);
-            SendMessageW(g_app.hwndSearch, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"Search 24+ games, genres, engines..."));
+            SendMessageW(g_app.hwndSearch, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"Search 50+ games, genres, engines..."));
 
             g_app.hwndFilter = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
                                                0, 0, 180, 200, hwnd, reinterpret_cast<HMENU>(IDC_COMBO_FILTER),
                                                GetModuleHandleW(nullptr), nullptr);
             SendMessageW(g_app.hwndFilter, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.hFontUi), TRUE);
-            SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"All Games (Installed First)"));
-            SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Installed Only"));
-            SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Can Run Recommended+"));
+            SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"All 50+ Games"));
+            SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Ultra / Recommended"));
+            SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Competitive / High FPS"));
+            SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Story / AAA"));
             SendMessageW(g_app.hwndFilter, CB_SETCURSEL, 0, 0);
 
             // Game ListView with 60x30 mini-banner thumbnails and 3 clean columns
@@ -2501,7 +2682,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             g_app.btnTabQuick  = makeCyberBtn(L"Quick Settings", IDC_BTN_TAB_QUICK);
             g_app.btnTabMatch  = makeCyberBtn(L"PC Match & Impact", IDC_BTN_TAB_MATCH);
             g_app.btnTabDriver = makeCyberBtn(L"Driver App", IDC_BTN_TAB_DRIVER);
-            g_app.btnTabTips   = makeCyberBtn(L"Tips & Drives", IDC_BTN_TAB_TIPS);
+            g_app.btnTabTips   = makeCyberBtn(L"Upscaling & Tips", IDC_BTN_TAB_TIPS);
 
             // Save Driver Guide button (shown on Tab 2) & Detailed Quick View Toggle (shown on Tab 0)
             g_app.btnSaveDrvMd = makeCyberBtn(L"Save Driver Guide (.MD)", IDC_BTN_SAVE_DRV_MD);
@@ -2531,10 +2712,10 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             ShowWindow(g_app.hwndDetailList, SW_HIDE);
 
             // Bottom Action Buttons
-            g_app.btnSaveIni    = makeCyberBtn(L"Save .INI", IDC_BTN_SAVE_INI);
-            g_app.btnSaveJson   = makeCyberBtn(L"Save .JSON", IDC_BTN_SAVE_JSON);
-            g_app.btnSaveMd     = makeCyberBtn(L"Save Guide (.MD)", IDC_BTN_SAVE_MD);
-            g_app.btnOpenFolder = makeCyberBtn(L"Open Game Folder", IDC_BTN_OPEN_FOLDER);
+            g_app.btnSaveIni     = makeCyberBtn(L"Save .INI", IDC_BTN_SAVE_INI);
+            g_app.btnSaveJson    = makeCyberBtn(L"Save .JSON", IDC_BTN_SAVE_JSON);
+            g_app.btnSaveMd      = makeCyberBtn(L"Save Guide (.MD)", IDC_BTN_SAVE_MD);
+            g_app.btnCopySummary = makeCyberBtn(L"Copy Summary", IDC_BTN_COPY_SUMMARY);
 
             layoutChildControls(hwnd);
             return 0;
@@ -2585,6 +2766,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 int sel = static_cast<int>(SendMessageW(g_app.hwndLang, CB_GETCURSEL, 0, 0));
                 g_app.isSpanish = (sel == 1);
                 applyLanguageToUi();
+                saveCurrentPreferences(hwnd);
                 return 0;
             }
 
@@ -2632,6 +2814,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     updateDetailButtonText();
                     updateTabVisibility();
                     populateDetailListView();
+                    saveCurrentPreferences(hwnd);
                     startUiAnimation(true, false);
                     InvalidateRect(hwnd, nullptr, FALSE);
                     break;
@@ -2641,6 +2824,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 case IDC_BTN_MODE_BALANCED:
                 case IDC_BTN_MODE_QUALITY:
                     g_app.activeOptMode = id - IDC_BTN_MODE_OPTIMAL;
+                    saveCurrentPreferences(hwnd);
                     startUiAnimation(true, true);
                     populateGameListView();
                     break;
@@ -2656,11 +2840,34 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     saveExportedConfigDialog(hwnd, "md");
                     break;
 
-                case IDC_BTN_OPEN_FOLDER: {
+                case IDC_BTN_COPY_SUMMARY: {
                     if (!g_app.allGames.empty()) {
                         const auto& gm = g_app.allGames[g_app.selectedGameIdx];
-                        std::wstring targetDir = !gm.installDir.empty() ? GameCheck::utf8ToWide(gm.installDir) : L".";
-                        ShellExecuteW(hwnd, L"open", targetDir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                        GameCheck::GameAnalysis ga = GameCheck::analyzeGame(g_app.activeSpecs, gm, g_app.activeOptMode);
+                        std::string summaryUtf8 = GameCheck::buildShareableSummaryText(g_app.activeSpecs, gm, ga, g_app.isSpanish);
+                        std::wstring summaryW = GameCheck::utf8ToWide(summaryUtf8);
+                        if (OpenClipboard(hwnd)) {
+                            EmptyClipboard();
+                            SIZE_T bytes = (summaryW.size() + 1) * sizeof(wchar_t);
+                            HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+                            if (hMem) {
+                                void* ptr = GlobalLock(hMem);
+                                if (ptr) {
+                                    memcpy(ptr, summaryW.c_str(), bytes);
+                                    GlobalUnlock(hMem);
+                                    if (!SetClipboardData(CF_UNICODETEXT, hMem)) {
+                                        GlobalFree(hMem);
+                                    }
+                                } else {
+                                    GlobalFree(hMem);
+                                }
+                            }
+                            CloseClipboard();
+                            if (g_app.btnCopySummary) {
+                                SetWindowTextW(g_app.btnCopySummary, tr(L"Copied! \x2713", L"\x00A1Copiado! \x2713"));
+                                SetTimer(hwnd, AppState::TIMER_COPY_CONFIRM, 1800, nullptr);
+                            }
+                        }
                     }
                     break;
                 }
@@ -2740,7 +2947,42 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             break;
         }
 
+        case AppState::WM_APP_UPDATE_RESULT: {
+            auto* res = reinterpret_cast<GameCheck::UpdateCheckResult*>(lParam);
+            if (res) {
+                g_app.updateState = *res;
+                g_app.updateCheckInProgress = false;
+                if (res->applied) {
+                    g_app.updatePillText = L"Updated v" + GameCheck::utf8ToWide(res->latestVersion);
+                    g_app.updatePillColor = CyberPalette::AcidGreen;
+                } else if (res->updateAvailable) {
+                    g_app.updatePillText = L"Update v" + GameCheck::utf8ToWide(res->latestVersion);
+                    g_app.updatePillColor = CyberPalette::CyberYellow;
+                } else {
+                    g_app.updatePillText = g_app.isSpanish ? L"Al d\x00EDa" : L"Up to date";
+                    g_app.updatePillColor = CyberPalette::AcidGreen;
+                }
+                if (g_app.hwndUpdatesDlgLabel && IsWindow(g_app.hwndUpdatesDlgLabel)) {
+                    SetWindowTextW(g_app.hwndUpdatesDlgLabel, buildUpdatesInfoText().c_str());
+                }
+                InvalidateRect(hwnd, nullptr, FALSE);
+                if (res->applied && res->restartRequired) {
+                    std::wstring msg = L"GameCheck is updating to v" + GameCheck::utf8ToWide(res->latestVersion) +
+                                       L" in the background. Please relaunch after setup finishes.";
+                    MessageBoxW(hwnd, msg.c_str(), L"GameCheck — Auto-Update", MB_OK | MB_ICONINFORMATION);
+                }
+                delete res;
+            }
+            return 0;
+        }
         case WM_TIMER: {
+            if (wParam == AppState::TIMER_COPY_CONFIRM) {
+                KillTimer(hwnd, AppState::TIMER_COPY_CONFIRM);
+                if (g_app.btnCopySummary) {
+                    SetWindowTextW(g_app.btnCopySummary, tr(L"Copy Summary", L"Copiar Resumen"));
+                }
+                return 0;
+            }
             if (wParam == AppState::TIMER_UI_ANIM) {
                 bool needCanvasRedraw = false;
                 if (g_app.tabAnimT < 1.0f) {
@@ -2812,6 +3054,12 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             return 0;
         }
 
+        case WM_CLOSE: {
+            saveCurrentPreferences(hwnd);
+            DestroyWindow(hwnd);
+            return 0;
+        }
+
         case WM_DESTROY: {
             if (g_app.uiAnimTimerActive) {
                 KillTimer(hwnd, AppState::TIMER_UI_ANIM);
@@ -2831,6 +3079,21 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 }
 
 static int runWin32DesktopGui() {
+    HANDLE hSingleInstanceMutex = CreateMutexW(nullptr, FALSE, L"Local\\GameCheckSingleInstanceMutex");
+    if (hSingleInstanceMutex && GetLastError() == ERROR_ALREADY_EXISTS) {
+        HWND existing = FindWindowW(L"GameCheckNativeDesktopWnd", nullptr);
+        if (existing) {
+            if (IsIconic(existing)) {
+                ShowWindow(existing, SW_RESTORE);
+            } else {
+                ShowWindow(existing, SW_SHOW);
+            }
+            SetForegroundWindow(existing);
+        }
+        CloseHandle(hSingleInstanceMutex);
+        return 0;
+    }
+
     SetProcessDPIAware();
 
     INITCOMMONCONTROLSEX icex = {};
@@ -2842,6 +3105,12 @@ static int runWin32DesktopGui() {
     ULONG_PTR gdiplusToken = 0;
     GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, nullptr);
 
+    GameCheck::UserPreferences prefs = GameCheck::loadUserPreferences();
+    g_app.isSpanish = prefs.isSpanish;
+    g_app.activeOptMode = prefs.activeOptMode;
+    g_app.detailedQuickView = prefs.detailedQuickView;
+    g_app.activeCountry = prefs.activeCountry;
+
     g_app.detectedSpecs = GameCheck::detectSystemSpecs();
     g_app.activeSpecs = g_app.detectedSpecs;
     g_app.allGames = GameCheck::getMergedGameList();
@@ -2849,13 +3118,22 @@ static int runWin32DesktopGui() {
         g_app.currentAnalysis = GameCheck::analyzeGame(g_app.activeSpecs, g_app.allGames[0], g_app.activeOptMode);
     }
 
+    HINSTANCE hInst = GetModuleHandleW(nullptr);
+    HICON hCustomIcon = static_cast<HICON>(LoadImageW(hInst, MAKEINTRESOURCEW(101), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE | LR_SHARED));
+    if (!hCustomIcon) hCustomIcon = LoadIconW(hInst, MAKEINTRESOURCEW(101));
+    if (!hCustomIcon) hCustomIcon = LoadIconW(nullptr, reinterpret_cast<LPCWSTR>(IDI_APPLICATION));
+    HICON hCustomIconSm = static_cast<HICON>(LoadImageW(hInst, MAKEINTRESOURCEW(101), IMAGE_ICON,
+                                                        GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED));
+    if (!hCustomIconSm) hCustomIconSm = hCustomIcon;
+
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = MainWndProc;
-    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hInstance = hInst;
     wc.hCursor = LoadCursorW(nullptr, reinterpret_cast<LPCWSTR>(IDC_ARROW));
-    wc.hIcon = LoadIconW(nullptr, reinterpret_cast<LPCWSTR>(IDI_APPLICATION));
+    wc.hIcon = hCustomIcon;
+    wc.hIconSm = hCustomIconSm;
     wc.hbrBackground = nullptr;
     wc.lpszClassName = L"GameCheckNativeDesktopWnd";
     RegisterClassExW(&wc);
@@ -2863,21 +3141,42 @@ static int runWin32DesktopGui() {
     std::wstring winTitle = L"GameCheck \x2014 PC Game & Hardware Advisor (v" +
                             GameCheck::utf8ToWide(GameCheck::FULL_VERSION) + L")";
 
+    int winW = (prefs.windowW >= 1040 && prefs.windowW <= 3840) ? prefs.windowW : 1320;
+    int winH = (prefs.windowH >= 640 && prefs.windowH <= 2160) ? prefs.windowH : 820;
+    int winX = CW_USEDEFAULT;
+    int winY = CW_USEDEFAULT;
+    if (prefs.windowX != -1 && prefs.windowY != -1) {
+        RECT desired = { prefs.windowX, prefs.windowY, prefs.windowX + winW, prefs.windowY + winH };
+        if (MonitorFromRect(&desired, MONITOR_DEFAULTTONULL) != nullptr) {
+            winX = prefs.windowX;
+            winY = prefs.windowY;
+        }
+    }
+
     HWND hwnd = CreateWindowExW(
         0,
         wc.lpszClassName,
         winTitle.c_str(),
         WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-        CW_USEDEFAULT, CW_USEDEFAULT, 1320, 820,
+        winX, winY, winW, winH,
         nullptr, nullptr, wc.hInstance, nullptr
     );
 
     g_app.hwndMain = hwnd;
     rebuildGameImageList();
     populateGameListView();
+    updateDetailButtonText();
+    updateTabVisibility();
+    if (g_app.detailedQuickView) {
+        populateDetailListView();
+    }
+    if (g_app.isSpanish) {
+        applyLanguageToUi();
+    }
 
     ShowWindow(hwnd, SW_SHOWNORMAL);
     UpdateWindow(hwnd);
+    startAsyncUpdateCheck(hwnd, true);
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
@@ -2886,10 +3185,356 @@ static int runWin32DesktopGui() {
     }
 
     GdiplusShutdown(gdiplusToken);
+    if (hSingleInstanceMutex) CloseHandle(hSingleInstanceMutex);
     return static_cast<int>(msg.wParam);
 }
 
-#endif // _WIN32
+#elif defined(__linux__) && defined(GAMECHECK_USE_GTK)
+
+#include <gtk/gtk.h>
+
+struct LinuxGtkApp {
+    GameCheck::SystemSpecs specs;
+    std::vector<GameCheck::GameSpec> allGames;
+    std::vector<size_t> filteredIndices;
+    size_t selectedGameIdx = 0;
+    int activeOptMode = GameCheck::OPT_MODE_OPTIMAL;
+    bool isSpanish = false;
+
+    GtkWidget* window = nullptr;
+    GtkWidget* lblHwBar = nullptr;
+    GtkWidget* searchEntry = nullptr;
+    GtkWidget* treeView = nullptr;
+    GtkListStore* listStore = nullptr;
+    GtkWidget* modeButtons[4] = { nullptr, nullptr, nullptr, nullptr };
+    GtkWidget* btnLang = nullptr;
+    GtkTextView* detailsView = nullptr;
+};
+
+static LinuxGtkApp g_gtkApp;
+
+static void saveLinuxGtkPrefs() {
+    GameCheck::UserPreferences prefs = GameCheck::loadUserPreferences();
+    prefs.isSpanish = g_gtkApp.isSpanish;
+    prefs.activeOptMode = g_gtkApp.activeOptMode;
+    if (g_gtkApp.window && GTK_IS_WIDGET(g_gtkApp.window)) {
+        int w = 1280, h = 800, x = -1, y = -1;
+        gtk_window_get_size(GTK_WINDOW(g_gtkApp.window), &w, &h);
+        gtk_window_get_position(GTK_WINDOW(g_gtkApp.window), &x, &y);
+        prefs.windowW = w;
+        prefs.windowH = h;
+        prefs.windowX = x;
+        prefs.windowY = y;
+    }
+    GameCheck::saveUserPreferences(prefs);
+}
+
+static void refreshLinuxDetailsPane() {
+    if (!g_gtkApp.detailsView || g_gtkApp.allGames.empty()) return;
+    if (g_gtkApp.selectedGameIdx >= g_gtkApp.allGames.size()) g_gtkApp.selectedGameIdx = 0;
+
+    const auto& game = g_gtkApp.allGames[g_gtkApp.selectedGameIdx];
+    auto ga = GameCheck::analyzeGame(g_gtkApp.specs, game, g_gtkApp.activeOptMode);
+    auto drv = GameCheck::getDriverAppRecommendations(g_gtkApp.specs, game, g_gtkApp.activeOptMode);
+
+    std::ostringstream oss;
+    oss << game.title << " (" << game.genre << " | " << game.engine << ")\n";
+    oss << (g_gtkApp.isSpanish ? "Estado: " : "Status: ") << ga.status
+        << "  |  " << (g_gtkApp.isSpanish ? "FPS Est. Pantalla: " : "Est. Screen FPS: ")
+        << ga.estimatedScreenFps.avg << " FPS (min " << ga.estimatedScreenFps.min
+        << " / max " << ga.estimatedScreenFps.max << ")\n";
+    oss << (g_gtkApp.isSpanish ? "Modo: " : "Mode: ") << ga.modeLabel
+        << "  |  " << ga.syncAdvice << "\n";
+    oss << "------------------------------------------------------------\n";
+    oss << (g_gtkApp.isSpanish ? "AJUSTES RECOMENDADOS EN JUEGO:\n" : "RECOMMENDED IN-GAME SETTINGS:\n");
+    for (const auto& s : ga.settingImpacts) {
+        oss << "  • " << s.setting << ": " << s.recommendedValue
+            << "  (" << s.fpsGainPct << ", VRAM: " << s.vramImpact << ")\n";
+    }
+    oss << "\n------------------------------------------------------------\n";
+    oss << (g_gtkApp.isSpanish ? "ESCALADO Y RESOLUCIÓN INTERNA:\n" : "UPSCALING & RESOLUTION MATH:\n");
+    for (const auto& t : GameCheck::computeUpscalingMatrix(g_gtkApp.specs, game, g_gtkApp.activeOptMode)) {
+        oss << "  • " << t.tierName << "  " << t.renderLabel
+            << "  (~" << t.estimatedFpsAvg << " FPS"
+            << (t.vramSavedMB > 0 ? (", -" + std::to_string(t.vramSavedMB) + " MB VRAM") : "")
+            << ")  " << t.recommendation << "\n";
+    }
+    oss << "\n------------------------------------------------------------\n";
+    oss << (g_gtkApp.isSpanish ? "CONFIGURACIÓN DE DRIVER GPU (" : "GPU DRIVER APP SETTINGS (") << drv.suiteName << "):\n";
+    for (const auto& ds : drv.settings) {
+        oss << "  • " << ds.setting << ": " << ds.recommendedValue << "\n"
+            << "    " << ds.why << "\n";
+    }
+
+    GtkTextBuffer* buf = gtk_text_view_get_buffer(g_gtkApp.detailsView);
+    std::string text = oss.str();
+    gtk_text_buffer_set_text(buf, text.c_str(), static_cast<gint>(text.size()));
+
+    for (int i = 0; i < 4; ++i) {
+        if (!g_gtkApp.modeButtons[i]) continue;
+        GtkStyleContext* ctx = gtk_widget_get_style_context(g_gtkApp.modeButtons[i]);
+        if (i == g_gtkApp.activeOptMode) {
+            gtk_style_context_add_class(ctx, "gc-mode-active");
+        } else {
+            gtk_style_context_remove_class(ctx, "gc-mode-active");
+        }
+    }
+}
+
+static void populateLinuxGameList() {
+    if (!g_gtkApp.listStore) return;
+    gtk_list_store_clear(g_gtkApp.listStore);
+    g_gtkApp.filteredIndices.clear();
+
+    const char* qRaw = g_gtkApp.searchEntry ? gtk_entry_get_text(GTK_ENTRY(g_gtkApp.searchEntry)) : "";
+    std::string q = qRaw ? GameCheck::trim(qRaw) : "";
+
+    for (size_t i = 0; i < g_gtkApp.allGames.size(); ++i) {
+        const auto& gm = g_gtkApp.allGames[i];
+        if (!q.empty() && !GameCheck::containsIgnoreCase(gm.title, q) &&
+            !GameCheck::containsIgnoreCase(gm.genre, q) && !GameCheck::containsIgnoreCase(gm.engine, q)) {
+            continue;
+        }
+        auto ga = GameCheck::analyzeGame(g_gtkApp.specs, gm, g_gtkApp.activeOptMode);
+        std::string fpsStr = std::to_string(ga.estimatedScreenFps.avg) + " FPS";
+        std::string titleStr = gm.installed ? ("[Installed] " + gm.title) : gm.title;
+
+        GtkTreeIter iter;
+        gtk_list_store_append(g_gtkApp.listStore, &iter);
+        gtk_list_store_set(g_gtkApp.listStore, &iter,
+                           0, titleStr.c_str(),
+                           1, ga.status.c_str(),
+                           2, fpsStr.c_str(),
+                           3, static_cast<guint>(i),
+                           -1);
+        g_gtkApp.filteredIndices.push_back(i);
+    }
+    if (!g_gtkApp.filteredIndices.empty()) {
+        g_gtkApp.selectedGameIdx = g_gtkApp.filteredIndices[0];
+        GtkTreePath* firstPath = gtk_tree_path_new_first();
+        gtk_tree_view_set_cursor(GTK_TREE_VIEW(g_gtkApp.treeView), firstPath, nullptr, FALSE);
+        gtk_tree_path_free(firstPath);
+    }
+    refreshLinuxDetailsPane();
+}
+
+static void onLinuxSearchChanged(GtkSearchEntry*, gpointer) {
+    populateLinuxGameList();
+}
+
+static void onLinuxSelectionChanged(GtkTreeSelection* selection, gpointer) {
+    GtkTreeModel* model = nullptr;
+    GtkTreeIter iter;
+    if (gtk_tree_selection_get_selected(selection, &model, &iter)) {
+        guint idx = 0;
+        gtk_tree_model_get(model, &iter, 3, &idx, -1);
+        g_gtkApp.selectedGameIdx = static_cast<size_t>(idx);
+        refreshLinuxDetailsPane();
+    }
+}
+
+static void onLinuxModeClicked(GtkButton*, gpointer userData) {
+    int mode = static_cast<int>(reinterpret_cast<intptr_t>(userData));
+    g_gtkApp.activeOptMode = mode;
+    saveLinuxGtkPrefs();
+    populateLinuxGameList();
+}
+
+static void onLinuxLangToggle(GtkButton*, gpointer) {
+    g_gtkApp.isSpanish = !g_gtkApp.isSpanish;
+    if (g_gtkApp.btnLang) {
+        gtk_button_set_label(GTK_BUTTON(g_gtkApp.btnLang), g_gtkApp.isSpanish ? "ES | Español" : "EN | English");
+    }
+    saveLinuxGtkPrefs();
+    refreshLinuxDetailsPane();
+}
+
+static void onLinuxExportClicked(GtkButton*, gpointer userData) {
+    if (g_gtkApp.allGames.empty()) return;
+    const char* ext = static_cast<const char*>(userData);
+    const auto& game = g_gtkApp.allGames[g_gtkApp.selectedGameIdx];
+    auto ga = GameCheck::analyzeGame(g_gtkApp.specs, game, g_gtkApp.activeOptMode);
+
+    std::string content;
+    std::string defaultName = "GameCheck-Config." + std::string(ext);
+    if (std::string(ext) == "ini") content = GameCheck::exportConfigIni(g_gtkApp.specs, game, ga);
+    else if (std::string(ext) == "json") content = GameCheck::exportConfigJson(g_gtkApp.specs, game, ga);
+    else content = GameCheck::exportConfigMd(g_gtkApp.specs, game, ga);
+
+    GtkWidget* dlg = gtk_file_chooser_dialog_new(
+        g_gtkApp.isSpanish ? "Guardar Configuración" : "Save Configuration",
+        GTK_WINDOW(g_gtkApp.window),
+        GTK_FILE_CHOOSER_ACTION_SAVE,
+        "_Cancel", GTK_RESPONSE_CANCEL,
+        "_Save", GTK_RESPONSE_ACCEPT,
+        nullptr
+    );
+    gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(dlg), TRUE);
+    gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dlg), defaultName.c_str());
+
+    if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT) {
+        char* filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dlg));
+        if (filename) {
+            std::ofstream ofs(filename, std::ios::binary | std::ios::trunc);
+            if (ofs) ofs.write(content.data(), static_cast<std::streamsize>(content.size()));
+            g_free(filename);
+        }
+    }
+    gtk_widget_destroy(dlg);
+}
+
+static void onLinuxCopySummaryClicked(GtkButton* btn, gpointer) {
+    if (g_gtkApp.allGames.empty()) return;
+    const auto& game = g_gtkApp.allGames[g_gtkApp.selectedGameIdx];
+    auto ga = GameCheck::analyzeGame(g_gtkApp.specs, game, g_gtkApp.activeOptMode);
+    std::string summary = GameCheck::buildShareableSummaryText(g_gtkApp.specs, game, ga, g_gtkApp.isSpanish);
+    GtkClipboard* cb = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    if (cb) {
+        gtk_clipboard_set_text(cb, summary.c_str(), static_cast<gint>(summary.size()));
+    }
+    gtk_button_set_label(btn, g_gtkApp.isSpanish ? "¡Copiado! ✓" : "Copied! ✓");
+}
+
+static gboolean onLinuxWindowDelete(GtkWidget*, GdkEvent*, gpointer) {
+    saveLinuxGtkPrefs();
+    return FALSE;
+}
+
+static int runLinuxGtkDesktopGui(int argc, char* argv[]) {
+    gtk_init(&argc, &argv);
+
+    GameCheck::UserPreferences prefs = GameCheck::loadUserPreferences();
+    g_gtkApp.isSpanish = prefs.isSpanish;
+    g_gtkApp.activeOptMode = prefs.activeOptMode;
+    g_gtkApp.specs = GameCheck::detectSystemSpecs();
+    g_gtkApp.allGames = GameCheck::getMergedGameList();
+
+    GtkCssProvider* css = gtk_css_provider_new();
+    gtk_css_provider_load_from_data(css,
+        "window, .background { background-color: #06060A; color: #E8ECF4; }\n"
+        "headerbar, .gc-bar { background-color: #0D0F18; border-bottom: 1px solid #1E2436; padding: 8px; }\n"
+        "entry, textview, textview text, treeview { background-color: #0B0D14; color: #E8ECF4; }\n"
+        "treeview:selected { background-color: #163042; color: #00F0FF; }\n"
+        "button { background-color: #141824; color: #E8ECF4; border: 1px solid #2A324B; border-radius: 4px; padding: 6px 10px; }\n"
+        "button:hover { border-color: #00F0FF; }\n"
+        "button.gc-mode-active { background-color: #242108; color: #FCEE09; border-color: #FCEE09; font-weight: bold; }\n",
+        -1, nullptr);
+    gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    g_object_unref(css);
+
+    g_gtkApp.window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    std::string title = std::string("GameCheck \xE2\x80\x94 PC Game & Hardware Advisor (v") + GameCheck::FULL_VERSION + ")";
+    gtk_window_set_title(GTK_WINDOW(g_gtkApp.window), title.c_str());
+    int winW = (prefs.windowW >= 900 && prefs.windowW <= 3840) ? prefs.windowW : 1280;
+    int winH = (prefs.windowH >= 600 && prefs.windowH <= 2160) ? prefs.windowH : 800;
+    gtk_window_set_default_size(GTK_WINDOW(g_gtkApp.window), winW, winH);
+    if (prefs.windowX >= 0 && prefs.windowY >= 0) {
+        gtk_window_move(GTK_WINDOW(g_gtkApp.window), prefs.windowX, prefs.windowY);
+    }
+    g_signal_connect(g_gtkApp.window, "delete-event", G_CALLBACK(onLinuxWindowDelete), nullptr);
+    g_signal_connect(g_gtkApp.window, "destroy", G_CALLBACK(gtk_main_quit), nullptr);
+
+    GtkWidget* rootBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(rootBox), 10);
+    gtk_container_add(GTK_CONTAINER(g_gtkApp.window), rootBox);
+
+    // Top Hardware Summary Bar
+    GtkWidget* topBar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_style_context_add_class(gtk_widget_get_style_context(topBar), "gc-bar");
+    std::ostringstream hwSs;
+    hwSs << "CPU: " << g_gtkApp.specs.cpu.name
+         << "  |  GPU: " << g_gtkApp.specs.gpu.name << " (" << g_gtkApp.specs.gpu.vramGB << " GB)"
+         << "  |  RAM: " << g_gtkApp.specs.ram.totalGB << " GB"
+         << "  |  Display: " << g_gtkApp.specs.display.width << "x" << g_gtkApp.specs.display.height
+         << " @ " << g_gtkApp.specs.display.refreshRateHz << "Hz";
+    g_gtkApp.lblHwBar = gtk_label_new(hwSs.str().c_str());
+    gtk_label_set_ellipsize(GTK_LABEL(g_gtkApp.lblHwBar), PANGO_ELLIPSIZE_END);
+    gtk_box_pack_start(GTK_BOX(topBar), g_gtkApp.lblHwBar, TRUE, TRUE, 0);
+
+    g_gtkApp.btnLang = gtk_button_new_with_label(g_gtkApp.isSpanish ? "ES | Español" : "EN | English");
+    g_signal_connect(g_gtkApp.btnLang, "clicked", G_CALLBACK(onLinuxLangToggle), nullptr);
+    gtk_box_pack_end(GTK_BOX(topBar), g_gtkApp.btnLang, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(rootBox), topBar, FALSE, FALSE, 0);
+
+    // Main Split Panes
+    GtkWidget* paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_paned_set_position(GTK_PANED(paned), 460);
+    gtk_box_pack_start(GTK_BOX(rootBox), paned, TRUE, TRUE, 0);
+
+    // Left Pane: Search + TreeView
+    GtkWidget* leftBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    g_gtkApp.searchEntry = gtk_search_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(g_gtkApp.searchEntry), "Search 50+ games, genres, engines...");
+    g_signal_connect(g_gtkApp.searchEntry, "search-changed", G_CALLBACK(onLinuxSearchChanged), nullptr);
+    gtk_box_pack_start(GTK_BOX(leftBox), g_gtkApp.searchEntry, FALSE, FALSE, 0);
+
+    g_gtkApp.listStore = gtk_list_store_new(4, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_UINT);
+    g_gtkApp.treeView = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_gtkApp.listStore));
+    auto addCol = [&](const char* titleStr, int colId, int minW) {
+        GtkCellRenderer* renderer = gtk_cell_renderer_text_new();
+        GtkTreeViewColumn* col = gtk_tree_view_column_new_with_attributes(titleStr, renderer, "text", colId, nullptr);
+        gtk_tree_view_column_set_resizable(col, TRUE);
+        gtk_tree_view_column_set_min_width(col, minW);
+        gtk_tree_view_append_column(GTK_TREE_VIEW(g_gtkApp.treeView), col);
+    };
+    addCol("Game", 0, 220);
+    addCol("Status", 1, 110);
+    addCol("Est. FPS", 2, 80);
+
+    GtkTreeSelection* sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(g_gtkApp.treeView));
+    gtk_tree_selection_set_mode(sel, GTK_SELECTION_SINGLE);
+    g_signal_connect(sel, "changed", G_CALLBACK(onLinuxSelectionChanged), nullptr);
+
+    GtkWidget* leftScroll = gtk_scrolled_window_new(nullptr, nullptr);
+    gtk_container_add(GTK_CONTAINER(leftScroll), g_gtkApp.treeView);
+    gtk_box_pack_start(GTK_BOX(leftBox), leftScroll, TRUE, TRUE, 0);
+    gtk_paned_pack1(GTK_PANED(paned), leftBox, TRUE, FALSE);
+
+    // Right Pane: Mode Buttons + Details TextView + Export Buttons
+    GtkWidget* rightBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    GtkWidget* modeBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    const char* modeLabels[4] = { "Optimal", "Max FPS", "Balanced", "Quality 30-60" };
+    for (int i = 0; i < 4; ++i) {
+        g_gtkApp.modeButtons[i] = gtk_button_new_with_label(modeLabels[i]);
+        g_signal_connect(g_gtkApp.modeButtons[i], "clicked", G_CALLBACK(onLinuxModeClicked), reinterpret_cast<gpointer>(static_cast<intptr_t>(i)));
+        gtk_box_pack_start(GTK_BOX(modeBox), g_gtkApp.modeButtons[i], TRUE, TRUE, 0);
+    }
+    gtk_box_pack_start(GTK_BOX(rightBox), modeBox, FALSE, FALSE, 0);
+
+    GtkWidget* rightScroll = gtk_scrolled_window_new(nullptr, nullptr);
+    GtkWidget* tv = gtk_text_view_new();
+    g_gtkApp.detailsView = GTK_TEXT_VIEW(tv);
+    gtk_text_view_set_editable(g_gtkApp.detailsView, FALSE);
+    gtk_text_view_set_wrap_mode(g_gtkApp.detailsView, GTK_WRAP_WORD_CHAR);
+    gtk_text_view_set_left_margin(g_gtkApp.detailsView, 8);
+    gtk_text_view_set_top_margin(g_gtkApp.detailsView, 8);
+    gtk_container_add(GTK_CONTAINER(rightScroll), tv);
+    gtk_box_pack_start(GTK_BOX(rightBox), rightScroll, TRUE, TRUE, 0);
+
+    GtkWidget* exportBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget* btnIni = gtk_button_new_with_label("Save .INI");
+    GtkWidget* btnJson = gtk_button_new_with_label("Save .JSON");
+    GtkWidget* btnMd = gtk_button_new_with_label("Save Guide (.MD)");
+    GtkWidget* btnCopySummary = gtk_button_new_with_label("Copy Summary");
+    g_signal_connect(btnIni, "clicked", G_CALLBACK(onLinuxExportClicked), const_cast<char*>("ini"));
+    g_signal_connect(btnJson, "clicked", G_CALLBACK(onLinuxExportClicked), const_cast<char*>("json"));
+    g_signal_connect(btnMd, "clicked", G_CALLBACK(onLinuxExportClicked), const_cast<char*>("md"));
+    g_signal_connect(btnCopySummary, "clicked", G_CALLBACK(onLinuxCopySummaryClicked), nullptr);
+    gtk_box_pack_start(GTK_BOX(exportBox), btnIni, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(exportBox), btnJson, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(exportBox), btnMd, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(exportBox), btnCopySummary, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(rightBox), exportBox, FALSE, FALSE, 0);
+
+    gtk_paned_pack2(GTK_PANED(paned), rightBox, TRUE, FALSE);
+
+    populateLinuxGameList();
+    gtk_widget_show_all(g_gtkApp.window);
+    gtk_main();
+    return 0;
+}
+
+#endif // _WIN32 / __linux__
 
 int main(int argc, char* argv[]) {
     bool smokeTest = false;
@@ -2915,6 +3560,8 @@ int main(int argc, char* argv[]) {
 
 #ifdef _WIN32
     return runWin32DesktopGui();
+#elif defined(__linux__) && defined(GAMECHECK_USE_GTK)
+    return runLinuxGtkDesktopGui(argc, argv);
 #else
     GameCheck::SystemSpecs specs = GameCheck::detectSystemSpecs();
     std::vector<GameCheck::GameSpec> merged = GameCheck::getMergedGameList();

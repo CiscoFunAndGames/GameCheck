@@ -55,20 +55,17 @@ int main() {
     check(GameCheck::scoreGPU("AMD Radeon RX 7800 XT", 16) == 80, "scoreGPU(RX 7800 XT) == 80");
     check(GameCheck::scoreGPU("Intel Arc B580", 12) == 66, "scoreGPU(Intel Arc B580) == 66");
 
-    // 3. 24 Catalog Games + Installed Game Scanner
-    std::cout << "\n[3/6] Testing 24 Built-In Catalog Games & Non-Invasive Installed Scanner...\n";
+    // 3. 50+ Catalog Games & Non-Invasive Zero-Library-Access Mode
+    std::cout << "\n[3/10] Testing 50+ Built-In Catalog Games & Non-Invasive Mode...\n";
     auto catalog = GameCheck::getCatalogGames();
-    check(catalog.size() == 24, "Catalog contains exactly 24 games");
+    check(catalog.size() >= 50, "Catalog contains >= 50 games (" + std::to_string(catalog.size()) + ")");
     check(catalog[0].title == "Cyberpunk 2077: Phantom Liberty" && catalog[0].steamAppId == "1091500", "Game #1 Cyberpunk 2077 verified");
-    check(catalog[23].title == "Final Fantasy XVI" && catalog[23].steamAppId == "2515020", "Game #24 Final Fantasy XVI verified");
 
     auto installed = GameCheck::scanInstalledGames();
     auto merged = GameCheck::getMergedGameList(installed);
     std::cout << "  -> Installed Games Found: " << installed.size() << " | Merged List Total: " << merged.size() << "\n";
-    check(merged.size() >= 24, "Merged game list has >= 24 games");
-    if (!installed.empty()) {
-        check(merged[0].installed || merged[0].playStatus != "CATALOG", "Installed/active games sorted to top of merged list");
-    }
+    check(installed.empty(), "Non-invasive mode: scanInstalledGames() returns empty");
+    check(merged.size() >= 50, "Merged game list has >= 50 games");
 
     // 4. 4 Screen-Aware Optimization Modes & Config Exporters
     std::cout << "\n[4/6] Testing 4 Screen-Aware Optimization Modes & Exporters...\n";
@@ -199,6 +196,92 @@ int main() {
     // 7d. Export integration check
     check(jsonText.find("\"driverAdvisor\"") != std::string::npos && jsonText.find("\"driverSuites\"") != std::string::npos, "exportConfigJson() includes driverSuites & driverAdvisor");
     check(mdText.find("GPU Driver App Configuration") != std::string::npos, "exportConfigMd() includes GPU Driver App Configuration section");
+
+    // 8. CalVer Comparison & SHA-256 Auto-Updater Core
+    std::cout << "\n[8/9] Testing CalVer Comparison & SHA-256 Auto-Updater Core...\n";
+    check(GameCheck::compareCalVerStr("v2026.11.18.4", "2026.11.17.2") > 0, "compareCalVerStr('v2026.11.18.4', '2026.11.17.2') > 0");
+    check(GameCheck::compareCalVerStr("2026.11.17.2", "2026.11.17.2") == 0, "compareCalVerStr('2026.11.17.2', '2026.11.17.2') == 0");
+    check(GameCheck::compareCalVerStr("2026.11.17", "2026.11.17.1") < 0, "compareCalVerStr('2026.11.17', '2026.11.17.1') < 0");
+    check(GameCheck::sha256Hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "sha256Hex('abc') matches NIST test vector");
+
+    // 9. Persistent User Preferences (settings.json)
+    std::cout << "\n[9/9] Testing Persistent User Preferences Roundtrip...\n";
+    {
+        std::filesystem::path tmpRoot = std::filesystem::temp_directory_path() / "gamecheck_test_prefs";
+        std::error_code ec;
+        std::filesystem::remove_all(tmpRoot, ec);
+        std::filesystem::create_directories(tmpRoot, ec);
+#ifdef _WIN32
+        wchar_t oldAppData[MAX_PATH] = {};
+        DWORD oldLen = GetEnvironmentVariableW(L"APPDATA", oldAppData, MAX_PATH);
+        SetEnvironmentVariableW(L"APPDATA", tmpRoot.wstring().c_str());
+#else
+        const char* oldXdg = std::getenv("XDG_CONFIG_HOME");
+        std::string oldXdgCopy = oldXdg ? oldXdg : "";
+        setenv("XDG_CONFIG_HOME", tmpRoot.string().c_str(), 1);
+#endif
+        GameCheck::UserPreferences outPrefs;
+        outPrefs.isSpanish = true;
+        outPrefs.activeOptMode = GameCheck::OPT_MODE_FULL_FPS;
+        outPrefs.detailedQuickView = true;
+        outPrefs.activeCountry = "ES";
+        outPrefs.windowX = 120;
+        outPrefs.windowY = 85;
+        outPrefs.windowW = 1440;
+        outPrefs.windowH = 900;
+
+        bool saved = GameCheck::saveUserPreferences(outPrefs);
+        GameCheck::UserPreferences inPrefs = GameCheck::loadUserPreferences();
+
+#ifdef _WIN32
+        SetEnvironmentVariableW(L"APPDATA", oldLen > 0 ? oldAppData : nullptr);
+#else
+        if (!oldXdgCopy.empty()) setenv("XDG_CONFIG_HOME", oldXdgCopy.c_str(), 1);
+        else unsetenv("XDG_CONFIG_HOME");
+#endif
+        std::filesystem::remove_all(tmpRoot, ec);
+
+        check(saved, "saveUserPreferences() writes settings.json");
+        check(inPrefs.isSpanish == true && inPrefs.activeOptMode == GameCheck::OPT_MODE_FULL_FPS, "loadUserPreferences() restores language & optMode");
+        check(inPrefs.detailedQuickView == true && inPrefs.activeCountry == "ES", "loadUserPreferences() restores detailedQuickView & country");
+        check(inPrefs.windowX == 120 && inPrefs.windowY == 85 && inPrefs.windowW == 1440 && inPrefs.windowH == 900, "loadUserPreferences() restores window geometry");
+    }
+
+    // 10. Upscaling & Resolution Math Engine + 1-Click Shareable Summary
+    std::cout << "\n[10/10] Testing Upscaling Matrix & 1-Click Shareable Summary...\n";
+    {
+        auto checkMatrix = [&](int w, int h, int expectedQualW, int expectedQualH, const std::string& label) {
+            GameCheck::SystemSpecs s = specs;
+            s.display.width = w;
+            s.display.height = h;
+            s.display.refreshRateHz = 144;
+            auto mat = GameCheck::computeUpscalingMatrix(s, cp2077, GameCheck::OPT_MODE_OPTIMAL);
+            check(mat.size() == 4, label + ": returns 4 tiers");
+            check(mat[0].scalePct == 100 && mat[0].renderWidth == w && mat[0].renderHeight == h && mat[0].vramSavedMB == 0,
+                  label + ": Native (100%) exact & 0 MB saved");
+            check(mat[1].scalePct == 67 && mat[1].renderWidth == expectedQualW && mat[1].renderHeight == expectedQualH,
+                  label + ": Quality (67%) exact (" + std::to_string(expectedQualW) + "x" + std::to_string(expectedQualH) + ")");
+            check(mat[2].scalePct == 58 && (mat[2].renderWidth % 2 == 0) && (mat[2].renderHeight % 2 == 0) && mat[2].vramSavedMB > 0,
+                  label + ": Balanced (58%) even dimensions & VRAM saved > 0");
+            check(mat[3].scalePct == 50 && mat[3].renderWidth == (w / 2) && mat[3].renderHeight == (h / 2) && mat[3].estimatedFpsAvg >= mat[0].estimatedFpsAvg,
+                  label + ": Performance (50%) exact & FPS >= Native");
+        };
+        checkMatrix(1920, 1080, 1280, 720, "1080p");
+        checkMatrix(2560, 1440, 1706, 960, "1440p");
+        checkMatrix(3840, 2160, 2560, 1440, "4K");
+
+        std::string sumEn = GameCheck::buildShareableSummaryText(specs, cp2077, aOptimal, false);
+        check(sumEn.find(GameCheck::FULL_VERSION) != std::string::npos, "Shareable summary (EN) contains FULL_VERSION");
+        check(sumEn.find(specs.cpu.name) != std::string::npos && sumEn.find(specs.gpu.name) != std::string::npos,
+              "Shareable summary (EN) contains CPU & GPU");
+        check(sumEn.find(std::to_string(specs.display.refreshRateHz) + " Hz") != std::string::npos,
+              "Shareable summary (EN) contains display Hz");
+        check(sumEn.find(cp2077.title) != std::string::npos, "Shareable summary (EN) contains game title");
+
+        std::string sumEs = GameCheck::buildShareableSummaryText(specs, cp2077, aOptimal, true);
+        check(sumEs.find("Equipo Detectado") != std::string::npos && sumEs.find(cp2077.title) != std::string::npos,
+              "Shareable summary (ES) localized & contains game title");
+    }
 
     std::cout << "\n================================================================\n";
     std::cout << "  PASSED: " << g_passed << " | FAILED: " << g_failed << "\n";

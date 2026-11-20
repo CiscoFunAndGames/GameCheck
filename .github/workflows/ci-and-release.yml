@@ -30,14 +30,14 @@ jobs:
       build_ref: ${{ steps.bump.outputs.build_ref }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Bump CalVer & Commit Version Update
         id: bump
@@ -72,14 +72,14 @@ jobs:
       git_tag: ${{ steps.version.outputs.git_tag }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.bump-calver.outputs.build_ref }}
 
       - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Read CalVer Metadata from version.json
         id: version
@@ -101,38 +101,39 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path bin | Out-Null
           g++ -O2 -std=c++17 native/rigcheck_probe.cpp -o bin/rigcheck-native-probe.exe -luser32 -lgdi32 -ladvapi32 -static -s
-          g++ -O2 -std=c++17 native/test_core.cpp -o bin/test-gamecheck-core.exe -luser32 -lgdi32 -ladvapi32 -lshell32 -static -s
-          g++ -O2 -std=c++17 native/gamecheck_desktop.cpp -o bin/GameCheck.exe -lgdiplus -luxtheme -lcomctl32 -lcomdlg32 -lshell32 -luser32 -lgdi32 -ladvapi32 -lole32 -luuid -static -s
+          g++ -O2 -std=c++17 native/test_core.cpp -o bin/test-gamecheck-core.exe -luser32 -lgdi32 -ladvapi32 -lshell32 -lwinhttp -static -s
+          windres native/gamecheck.rc -O coff -o native/gamecheck_res.o
+          g++ -O2 -std=c++17 -mwindows native/gamecheck_desktop.cpp native/gamecheck_res.o -o bin/GameCheck.exe -lgdiplus -luxtheme -lcomctl32 -lcomdlg32 -lshell32 -luser32 -lgdi32 -ladvapi32 -lole32 -luuid -lwinhttp -static -s
           .\bin\rigcheck-native-probe.exe
+          .\bin\test-gamecheck-core.exe
           .\bin\GameCheck.exe --smoke-test
 
       - name: Build SHA-256 Live Patch Bundle & Native C++ Windows Installer
         shell: pwsh
         run: |
+          if (Test-Path dist) { Remove-Item -Recurse -Force dist\* }
           node scripts/create-patch.js
           node scripts/build-installer.js
 
       - name: Verify Native C++ Windows Setup Executable (--verify & --check-deps)
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path dist -Filter "RigCheck-Optimizer-Setup-*.exe" | Select-Object -First 1
-          if (-not $exe) { throw "Windows .exe installer not found in dist/" }
-          & $exe.FullName --verify
-          & $exe.FullName --check-deps
+          $exe = Join-Path dist "GameCheck-Setup-${{ steps.version.outputs.calver }}.exe"
+          if (-not (Test-Path $exe)) { throw "Windows .exe installer not found at $exe" }
+          & $exe --verify
+          & $exe --check-deps
 
       - name: Run Full Verification & Unit Test Suite (Windows)
         shell: pwsh
         run: node test/run-all.js
 
       - name: Upload Windows Downloadable Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: GameCheck-Windows-Installer
           path: |
-            dist/GameCheck-Setup-*.exe
-            dist/GameCheck-App-Payload-*.zip
-            dist/RigCheck-Optimizer-Setup-*.exe
-            dist/RigCheck-App-Payload-*.zip
+            dist/GameCheck-Setup-${{ steps.version.outputs.calver }}.exe
+            dist/GameCheck-App-Payload-${{ steps.version.outputs.calver }}.zip
             dist/rigcheck-patch-*.rigpatch.json
             dist/SHA256SUMS.txt
             dist/release-manifest.json
@@ -144,52 +145,60 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.bump-calver.outputs.build_ref }}
 
       - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
 
-      - name: Install Linux System Dependencies (g++, pciutils, mesa-utils, x11-xserver-utils, unzip)
+      - name: Install Linux System Dependencies (g++, libgtk-3-dev, pkg-config, pciutils, mesa-utils, x11-xserver-utils, unzip)
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ pciutils mesa-utils x11-xserver-utils unzip zip
+          sudo apt-get install -y g++ libgtk-3-dev pkg-config pciutils mesa-utils x11-xserver-utils unzip zip
 
       - name: Install NPM Dependencies
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-      - name: Compile C++17 Native Display & Driver Probe (Linux)
+      - name: Compile C++17 Native Display & Driver Probe + GTK3 Desktop GUI (Linux)
         run: |
           mkdir -p bin
           g++ -O2 -std=c++17 native/rigcheck_probe.cpp -o bin/rigcheck-native-probe
           chmod +x bin/rigcheck-native-probe
           ./bin/rigcheck-native-probe || true
+          if pkg-config --exists gtk+-3.0; then
+            g++ -O2 -std=c++17 -DGAMECHECK_USE_GTK native/gamecheck_desktop.cpp -o bin/gamecheck $(pkg-config --cflags --libs gtk+-3.0) -lpthread
+          else
+            g++ -O2 -std=c++17 native/gamecheck_desktop.cpp -o bin/gamecheck -lpthread
+          fi
+          chmod +x bin/gamecheck
+          ./bin/gamecheck --smoke-test
 
       - name: Build SHA-256 Live Patch Bundle & Linux Self-Contained Installer
         run: |
+          rm -rf dist/*
           node scripts/create-patch.js
           node scripts/build-installer.js
 
       - name: Verify Linux Self-Contained Installer (--verify & --check-deps)
         run: |
-          chmod +x dist/rigcheck-installer-*.sh
-          bash dist/rigcheck-installer-*.sh --verify
-          bash dist/rigcheck-installer-*.sh --check-deps
+          CALVER=$(node -p "require('./version.json').calver")
+          chmod +x "dist/gamecheck-installer-${CALVER}.sh"
+          bash "dist/gamecheck-installer-${CALVER}.sh" --verify
+          bash "dist/gamecheck-installer-${CALVER}.sh" --check-deps
 
       - name: Run Full Verification & Unit Test Suite (Linux)
         run: node test/run-all.js
 
       - name: Upload Linux Downloadable Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: GameCheck-Linux-Installer
           path: |
             dist/gamecheck-installer-*.sh
-            dist/rigcheck-installer-*.sh
           if-no-files-found: error
 
   publish-release:
@@ -199,18 +208,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.bump-calver.outputs.build_ref }}
 
       - name: Download Windows Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: GameCheck-Windows-Installer
           path: release-assets
 
       - name: Download Linux Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: GameCheck-Linux-Installer
           path: release-assets
@@ -219,8 +228,8 @@ jobs:
         id: release_prep
         run: |
           cd release-assets
-          chmod +x rigcheck-installer-*.sh 2>/dev/null || true
-          sha256sum RigCheck-Optimizer-Setup-*.exe rigcheck-installer-*.sh RigCheck-App-Payload-*.zip rigcheck-patch-*.rigpatch.json > SHA256SUMS.txt
+          chmod +x gamecheck-installer-*.sh 2>/dev/null || true
+          sha256sum GameCheck-Setup-*.exe gamecheck-installer-*.sh GameCheck-App-Payload-*.zip rigcheck-patch-*.rigpatch.json > SHA256SUMS.txt
           cat SHA256SUMS.txt
           cd ..
           node -e '

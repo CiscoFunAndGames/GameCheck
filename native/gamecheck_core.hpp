@@ -21,11 +21,11 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
-#include <tlhelp32.h>
+#include <winhttp.h>
+#include <shellapi.h>
 #else
 #include <sys/statvfs.h>
 #include <unistd.h>
-#include <dirent.h>
 #include <sys/stat.h>
 #endif
 
@@ -1135,7 +1135,7 @@ inline SystemSpecs detectSystemSpecs() {
 }
 
 // =============================================================================
-// 3. 24 Built-In Catalog Games + Non-Invasive Installed Game Scanner
+// 3. 56 Built-In Catalog Games + Strictly Non-Invasive Zero-Library-Access Mode
 // =============================================================================
 struct GameSpec {
     std::string id;
@@ -1541,52 +1541,432 @@ inline std::vector<GameSpec> getCatalogGames() {
                 "Set Graphical Fidelity and Shadow Quality to High instead of Ultra on 8GB VRAM GPUs.",
                 "Must be installed on a fast NVMe SSD for seamless cutscene-to-combat transitions."
             }
+        ),
+        // 25. God of War Ragnarök
+        makeGame(
+            "god-of-war-ragnarok", "God of War Ragnarök", "Action Adventure", "Santa Monica Engine", 2024,
+            "2322010", "GWR", 0x09192B, 0x1E3A5F, 0x38BDF8,
+            "Intel Core i5-4670K or AMD Ryzen 3 1200", "NVIDIA GeForce GTX 1060 6GB or AMD Radeon RX 5500 XT 8GB", 8, 6,
+            "Intel Core i5-8600 or AMD Ryzen 5 3600", "NVIDIA GeForce RTX 2060 Super or AMD Radeon RX 5700", 16, 8,
+            190, true, false, {"DLSS", "FSR", "XeSS"}, 72,
+            {
+                "Enable DLSS Quality or FSR 3.1 Quality for a sharp +25% FPS boost across Midgard and Vanaheim.",
+                "Keep Tessellation and Volumetrics at High instead of Ultra to avoid frame drops in Svartalfheim.",
+                "Install on an NVMe SSD to handle the 190 GB footprint and seamless realm travel."
+            }
+        ),
+        // 26. Marvel's Spider-Man Remastered
+        makeGame(
+            "spider-man-remastered", "Marvel's Spider-Man Remastered", "Action Adventure", "Insomniac Engine", 2022,
+            "1817070", "SMR", 0x2A0A12, 0x1E1B4B, 0xEF4444,
+            "Intel Core i3-4160 or AMD Ryzen 3 1200", "NVIDIA GeForce GTX 950 or AMD Radeon RX 470", 8, 4,
+            "Intel Core i5-4670 or AMD Ryzen 5 1600", "NVIDIA GeForce GTX 1060 6GB or AMD Radeon RX 580 8GB", 16, 6,
+            75, true, true, {"DLSS", "FSR", "XeSS", "IGTI"}, 85,
+            {
+                "Web-swinging through Manhattan is heavily CPU-bound: lower Crowd Density and Traffic Density to Medium on 6-core CPUs.",
+                "Disable Ray-Traced Reflections on 8GB VRAM GPUs or enable DLSS/FSR Balanced to prevent traversal stutters.",
+                "Set Level of Detail to High instead of Very High for smoother 1% lows."
+            }
+        ),
+        // 27. Path of Exile 2
+        makeGame(
+            "path-of-exile-2", "Path of Exile 2", "Action RPG", "GGG Proprietary Engine", 2024,
+            "2694490", "POE", 0x1A120B, 0x3B1D0E, 0xF59E0B,
+            "Intel Core i7-7700 or AMD Ryzen 5 2500", "NVIDIA GeForce GTX 960 or AMD Radeon RX 470", 8, 4,
+            "Intel Core i5-10500 or AMD Ryzen 5 3700X", "NVIDIA GeForce RTX 2060 or AMD Radeon RX 5600 XT", 16, 6,
+            100, true, false, {"DLSS", "FSR", "XeSS", "NIS"}, 90,
+            {
+                "Use Vulkan or DirectX 12 renderer and enable Dynamic Culling for crowded endgame mapping.",
+                "Set Global Illumination to Low/Medium to save up to 25% GPU load during heavy spell effects.",
+                "Enable NVIDIA Reflex or AMD Anti-Lag for snappier boss dodge response."
+            }
+        ),
+        // 28. Horizon Forbidden West Complete Edition
+        makeGame(
+            "horizon-forbidden-west", "Horizon Forbidden West Complete Edition", "Action RPG", "Decima Engine", 2024,
+            "2420110", "HFW", 0x0A1F2E, 0x14453D, 0x2DD4BF,
+            "Intel Core i3-8100 or AMD Ryzen 3 1300X", "NVIDIA GeForce GTX 1650 4GB or AMD Radeon RX 5500 XT 4GB", 16, 4,
+            "Intel Core i5-8600 or AMD Ryzen 5 3600", "NVIDIA GeForce RTX 3060 or AMD Radeon RX 5700", 16, 8,
+            150, true, false, {"DLSS", "FSR", "XeSS"}, 74,
+            {
+                "Keep Texture Quality at High on 8GB VRAM GPUs to prevent texture pop-in in Burning Shores.",
+                "Lower Cloud Quality and Hair Quality from Very High to Medium/High for +15% FPS.",
+                "Use DLSS 3 or FSR 2.2 Quality for crisp foliage rendering at 1440p."
+            }
+        ),
+        // 29. The Last of Us Part I
+        makeGame(
+            "the-last-of-us-part-1", "The Last of Us Part I", "Action Adventure", "Naughty Dog Engine", 2023,
+            "1888930", "TLU", 0x111827, 0x1F2937, 0xA3E635,
+            "AMD Ryzen 5 1500X or Intel Core i7-4770K", "AMD Radeon RX 470 or NVIDIA GeForce GTX 970", 16, 4,
+            "AMD Ryzen 5 3600 or Intel Core i7-8700", "AMD Radeon RX 5700 XT or NVIDIA GeForce RTX 2070 Super", 16, 8,
+            100, true, false, {"DLSS", "FSR"}, 62,
+            {
+                "Wait for initial shader compilation to reach 100% in the main menu before starting gameplay.",
+                "Set Environment Texture Quality to Medium/High on 8GB VRAM cards to stay under the VRAM budget.",
+                "Enable DLSS or FSR Quality to smooth out dense overgrown city chapters."
+            }
+        ),
+        // 30. Control Ultimate Edition
+        makeGame(
+            "control", "Control Ultimate Edition", "Action Adventure", "Northlight Engine", 2020,
+            "870780", "CTL", 0x1F0910, 0x3B0A18, 0xF43F5E,
+            "Intel Core i5-4690 or AMD FX-4350", "NVIDIA GeForce GTX 780 or AMD Radeon R9 280X", 8, 4,
+            "Intel Core i5-7600K or AMD Ryzen 5 1600X", "NVIDIA GeForce GTX 1660 or AMD Radeon RX 580", 16, 6,
+            42, false, true, {"DLSS"}, 82,
+            {
+                "Set Volumetric Lighting and Screen Space Reflections to Medium for +20% FPS with virtually identical visuals.",
+                "If enabling Ray Tracing, toggle on DLSS Quality and keep RT Indirect Diffuse Lighting off on mid-range GPUs.",
+                "Run in DirectX 12 mode for better multi-core CPU scaling and ray tracing support."
+            }
+        ),
+        // 31. Metro Exodus Enhanced Edition
+        makeGame(
+            "metro-exodus-enhanced", "Metro Exodus Enhanced Edition", "First-Person Shooter", "4A Engine", 2021,
+            "1449560", "MEE", 0x0C1219, 0x1E293B, 0x38BDF8,
+            "Intel Core i5-4440", "NVIDIA GeForce RTX 2060", 8, 6,
+            "Intel Core i7-8700K", "NVIDIA GeForce RTX 2070 or AMD Radeon RX 6700 XT", 16, 8,
+            80, true, true, {"DLSS"}, 68,
+            {
+                "Enhanced Edition requires a hardware Ray Tracing GPU (RTX 20-series or RX 6000-series+).",
+                "Enable DLSS Quality and set Ray Tracing to Normal rather than Ultra for 60+ FPS in open Volga/Caspian zones.",
+                "Keep Hairworks and Advanced PhysX off unless you have significant GPU headroom."
+            }
+        ),
+        // 32. DOOM Eternal
+        makeGame(
+            "doom-eternal", "DOOM Eternal", "First-Person Shooter", "id Tech 7", 2020,
+            "782330", "DME", 0x290D07, 0x451208, 0xF97316,
+            "Intel Core i5-4430 or AMD Ryzen 3 1200", "NVIDIA GeForce GTX 1050 Ti or AMD Radeon RX 470", 8, 4,
+            "Intel Core i7-6700K or AMD Ryzen 7 1700", "NVIDIA GeForce GTX 1080 or AMD Radeon RX 5700", 8, 8,
+            80, true, true, {"DLSS"}, 144,
+            {
+                "id Tech 7 runs on Vulkan and scales effortlessly to 144+ FPS on mid-range hardware.",
+                "Keep Texture Pool Size at High on 6-8GB VRAM cards so it never exceeds available VRAM.",
+                "Disable Ray-Traced Reflections on non-RTX 3070+ GPUs to maintain locked high-refresh competitive fluidity."
+            }
+        ),
+        // 33. Hollow Knight
+        makeGame(
+            "hollow-knight", "Hollow Knight", "Metroidvania Indie", "Unity", 2017,
+            "367520", "HK", 0x0B1021, 0x1E293B, 0x93C5FD,
+            "Intel Core 2 Duo E5200", "NVIDIA GeForce 9800GTX+ or AMD Radeon HD 4850", 4, 1,
+            "Intel Core i5-4460", "NVIDIA GeForce GTX 560 or AMD Radeon R7 260X", 8, 2,
+            9, false, false, {"Native"}, 144,
+            {
+                "Runs at 144+ FPS on virtually any modern integrated or discrete GPU.",
+                "Set Particle Effects to Normal if you experience minor frame dips in White Palace or Godhome.",
+                "Use Borderless Fullscreen with V-Sync off if your monitor supports G-Sync/FreeSync for zero input lag."
+            }
+        ),
+        // 34. Hades II
+        makeGame(
+            "hades-ii", "Hades II", "Roguelike Action", "Supergiant Custom Engine", 2024,
+            "1145350", "HD2", 0x0E1B18, 0x1F3A32, 0x34D399,
+            "Intel Core i5-6500 or AMD Ryzen 3 1200", "NVIDIA GeForce GTX 950 or AMD Radeon R7 370", 8, 2,
+            "Intel Core i5-8400 or AMD Ryzen 5 2600", "NVIDIA GeForce GTX 1060 or AMD Radeon RX 580", 16, 4,
+            10, false, false, {"Native"}, 144,
+            {
+                "Extremely lightweight and responsive: easily hits 120-240 FPS on 1080p/1440p displays.",
+                "Enable V-Sync or cap FPS to your monitor refresh rate to prevent unnecessary GPU coil whine.",
+                "Run in DirectX 12 or Vulkan for optimal frame pacing during busy Olympus encounters."
+            }
+        ),
+        // 35. Diablo IV
+        makeGame(
+            "diablo-iv", "Diablo IV", "Action RPG", "Blizzard Proprietary", 2023,
+            "2344520", "D4", 0x1F0909, 0x380E12, 0xDC2626,
+            "Intel Core i5-2500K or AMD FX-8100", "NVIDIA GeForce GTX 660 or AMD Radeon R9 280", 8, 4,
+            "Intel Core i5-4670K or AMD Ryzen 3 1300X", "NVIDIA GeForce GTX 970 or AMD Radeon RX 470", 16, 6,
+            90, true, true, {"DLSS", "FSR", "XeSS"}, 96,
+            {
+                "Do not install the optional High-Resolution Assets pack if your GPU has 8GB VRAM or less.",
+                "Keep Fur Quality and Clutter Quality at Medium to eliminate town/world-boss stuttering.",
+                "Enable DLSS Quality + NVIDIA Reflex for crisp 120+ FPS ARPG combat."
+            }
+        ),
+        // 36. League of Legends
+        makeGame(
+            "league-of-legends", "League of Legends", "Competitive MOBA", "Riot Proprietary", 2009,
+            "", "LOL", 0x091628, 0x112D4E, 0xFACC15,
+            "Intel Core i3-530 or AMD A6-3650", "NVIDIA GeForce 9600GT or AMD Radeon HD 6570", 4, 1,
+            "Intel Core i5-3300 or AMD Ryzen 3 1200", "NVIDIA GeForce GTX 560 or AMD Radeon HD 6950", 8, 2,
+            16, false, false, {"Native"}, 180,
+            {
+                "Single-core CPU speed drives late-game 5v5 teamfight FPS; close browser tabs in the background.",
+                "Cap FPS at 144 or 240 FPS instead of Uncapped to avoid character-skipping movement bugs.",
+                "Disable Eye Candy and Character Inking for maximum visual clarity in teamfights."
+            }
+        ),
+        // 37. Dota 2
+        makeGame(
+            "dota-2", "Dota 2", "Competitive MOBA", "Source 2", 2013,
+            "570", "DT2", 0x240C0C, 0x3D1414, 0xEF4444,
+            "Intel Core i5-2400 or AMD FX-6300", "NVIDIA GeForce GTX 650 or AMD Radeon HD 7750", 4, 2,
+            "Intel Core i5-8400 or AMD Ryzen 5 2600", "NVIDIA GeForce GTX 1060 or AMD Radeon RX 580", 8, 4,
+            60, false, false, {"FSR"}, 144,
+            {
+                "Use the Vulkan or DirectX 11 API depending on which gives steadier 1% lows on your GPU.",
+                "Turn off Animate Portrait, Grass, and High Quality Water for +18% FPS in chaotic Roshan fights.",
+                "Enable NVIDIA Reflex Low Latency in Video settings for faster last-hitting and spell reactions."
+            }
+        ),
+        // 38. Overwatch 2
+        makeGame(
+            "overwatch-2", "Overwatch 2", "Competitive Hero Shooter", "Overwatch Engine", 2022,
+            "2357570", "OW2", 0x1E293B, 0x334155, 0xFB923C,
+            "Intel Core i3-6100 or AMD Ryzen 3 1200", "NVIDIA GeForce GTX 600 series or AMD Radeon HD 7000", 6, 2,
+            "Intel Core i7-4770 or AMD Ryzen 5 1600", "NVIDIA GeForce GTX 1060 or AMD Radeon RX 580", 8, 4,
+            50, true, false, {"DLSS", "FSR"}, 165,
+            {
+                "Set Render Scale to 100% (or FSR/DLSS Quality) and Dynamic Render Scale to Off for crisp aim.",
+                "Lower Fog Detail, Local Reflections, and Shadow Detail to Low for rock-solid 165-240 FPS.",
+                "Enable NVIDIA Reflex + Boost to minimize system click-to-photon latency."
+            }
+        ),
+        // 39. Tom Clancy's Rainbow Six Siege
+        makeGame(
+            "rainbow-six-siege", "Tom Clancy's Rainbow Six Siege", "Tactical Shooter", "AnvilNext 2.0", 2015,
+            "359550", "R6S", 0x0F172A, 0x1E293B, 0x38BDF8,
+            "Intel Core i3-560 or AMD Phenom II X4 945", "NVIDIA GeForce GTX 460 or AMD Radeon HD 5870", 6, 2,
+            "Intel Core i5-2500K or AMD FX-8120", "NVIDIA GeForce GTX 670 or AMD Radeon HD 7970", 8, 4,
+            85, false, false, {"DLSS", "FSR"}, 180,
+            {
+                "Run the DirectX 11 or Vulkan executable and enable NVIDIA Reflex / Anti-Lag.",
+                "Set Shadows to Medium (keeps player shadows visible) while lowering Shading and Reflection Quality to Low.",
+                "Use T-AA at 100% Render Scaling or DLSS Quality for razor-sharp pixel peeks."
+            }
+        ),
+        // 40. PUBG: BATTLEGROUNDS
+        makeGame(
+            "pubg-battlegrounds", "PUBG: BATTLEGROUNDS", "Battle Royale", "Unreal Engine 4", 2017,
+            "578080", "PBG", 0x1C1917, 0x44403C, 0xF59E0B,
+            "Intel Core i5-4430 or AMD FX-6300", "NVIDIA GeForce GTX 960 or AMD Radeon R7 370", 8, 2,
+            "Intel Core i5-6600K or AMD Ryzen 5 1600", "NVIDIA GeForce GTX 1060 3GB or AMD Radeon RX 580", 16, 4,
+            40, true, false, {"Native"}, 115,
+            {
+                "Set Foliage, Shadows, and Effects to Very Low for both maximum FPS and clearer enemy visibility.",
+                "Keep Textures and View Distance at Medium/High if you have 6GB+ VRAM.",
+                "Run in DirectX 11 Enhanced mode for the best frame-time consistency in hot-drops."
+            }
+        ),
+        // 41. Escape from Tarkov
+        makeGame(
+            "escape-from-tarkov", "Escape from Tarkov", "Tactical Extraction Shooter", "Unity", 2017,
+            "", "EFT", 0x18181B, 0x27272A, 0xA1A1AA,
+            "Intel Core i5-4460 or AMD Ryzen 3 1200", "NVIDIA GeForce GTX 960 or AMD Radeon RX 560", 16, 4,
+            "Intel Core i7-10700 or AMD Ryzen 7 5800X3D", "NVIDIA GeForce RTX 3060 or AMD Radeon RX 6700 XT", 32, 8,
+            45, true, false, {"DLSS", "FSR"}, 72,
+            {
+                "Streets of Tarkov is heavily CPU & RAM bound: 32 GB RAM and X3D cache CPUs yield massive 1% low gains.",
+                "Enable 'Streets of Tarkov Lower Texture Resolution Mode' on 8GB VRAM GPUs to prevent stutters.",
+                "Use DLSS Quality or FSR 2.2 Quality to offset the performance hit of dual-render PiP scopes."
+            }
+        ),
+        // 42. Rust
+        makeGame(
+            "rust", "Rust", "Survival Sandbox", "Unity", 2018,
+            "252490", "RST", 0x27130C, 0x431407, 0xEA580C,
+            "Intel Core i7-3770 or AMD FX-9590", "NVIDIA GeForce GTX 670 or AMD Radeon R9 280", 10, 4,
+            "Intel Core i7-9700K or AMD Ryzen 7 5800X3D", "NVIDIA GeForce RTX 2060 or AMD Radeon RX 5700", 16, 8,
+            25, true, false, {"DLSS"}, 84,
+            {
+                "Rust is intensely CPU- and memory-bound on high-pop servers: 16-32 GB RAM and an SSD are essential.",
+                "Set Graphics Quality to 3-4, Shadow Cascades to None/Two, and Max Gibs to 0 for smoother PvP gunfights.",
+                "Enable DLSS Quality and NVIDIA Reflex to reduce input lag during base raids."
+            }
+        ),
+        // 43. Palworld
+        makeGame(
+            "palworld", "Palworld", "Survival Monster-Taming", "Unreal Engine 5", 2024,
+            "1623730", "PAL", 0x0A192F, 0x164E63, 0x38BDF8,
+            "Intel Core i5-3570K or AMD Ryzen 3 1200", "NVIDIA GeForce GTX 1050 2GB or AMD Radeon RX 560", 16, 4,
+            "Intel Core i9-9900K or AMD Ryzen 5 5600", "NVIDIA GeForce RTX 2070 or AMD Radeon RX 6600 XT", 32, 8,
+            40, true, false, {"DLSS", "TSR"}, 76,
+            {
+                "Hosting a multiplayer co-op world uses significant RAM: 32 GB is recommended for smooth base building.",
+                "Lower View Distance and Grass Details to Medium for +20% FPS in dense Pal bases.",
+                "Enable DLSS Quality or TSR Balanced at 1440p."
+            }
+        ),
+        // 44. Enshrouded
+        makeGame(
+            "enshrouded", "Enshrouded", "Survival Action RPG", "Voxel Proprietary Engine", 2024,
+            "1203620", "ENS", 0x111827, 0x1E3A5F, 0x60A5FA,
+            "Intel Core i5-6400 or AMD Ryzen 5 1500X", "NVIDIA GeForce GTX 1060 6GB or AMD Radeon RX 580 8GB", 16, 6,
+            "Intel Core i7-8700 or AMD Ryzen 5 3700X", "NVIDIA GeForce RTX 2070 Super or AMD Radeon RX 6700 XT", 16, 8,
+            60, true, false, {"DLSS", "FSR"}, 68,
+            {
+                "Voxel global illumination and dense fog are GPU-heavy: set Fog Quality and GI Quality to Performance/Balanced.",
+                "Enable DLSS Quality or FSR 2 Quality for a +25-30% FPS boost in Shroud zones.",
+                "Keep Texture Resolution at Balanced on 6GB VRAM cards."
+            }
+        ),
+        // 45. Valheim
+        makeGame(
+            "valheim", "Valheim", "Survival Co-op", "Unity", 2021,
+            "892970", "VAL", 0x0F172A, 0x14532D, 0x4ADE80,
+            "Intel Core i5-7400 or AMD Ryzen 3 1200", "NVIDIA GeForce GTX 950 or AMD Radeon R9 280", 8, 2,
+            "Intel Core i5-10400 or AMD Ryzen 5 3600", "NVIDIA GeForce GTX 1060 or AMD Radeon RX 580", 16, 4,
+            2, false, false, {"Native"}, 95,
+            {
+                "Large player-built bases with many terraformed terrain instances tax CPU draw calls.",
+                "Lower Vegetation Quality and Active Point Lights to Medium to keep base FPS above 60.",
+                "Run with Vulkan (-force-vulkan) if you experience stuttering on DirectX 11."
+            }
+        ),
+        // 46. No Man's Sky
+        makeGame(
+            "no-mans-sky", "No Man's Sky", "Space Exploration Survival", "Hello Games Proprietary", 2016,
+            "275850", "NMS", 0x1E1B4B, 0x4C1D95, 0xF472B6,
+            "Intel Core i3-4130 or AMD FX-6300", "NVIDIA GeForce GTX 1060 3GB or AMD Radeon RX 470", 8, 4,
+            "Intel Core i5-8400 or AMD Ryzen 5 2600", "NVIDIA GeForce RTX 2060 or AMD Radeon RX 5600 XT", 16, 6,
+            15, true, false, {"DLSS", "FSR", "XeSS"}, 88,
+            {
+                "Planet Quality and Reflections are the biggest GPU hits: keep both at Enhanced/High instead of Ultra.",
+                "Enable DLSS 2 or FSR 2.0 Quality for smooth 90+ FPS during planetary entry.",
+                "Install on an SSD to drastically cut warp-screen loading times."
+            }
+        ),
+        // 47. Microsoft Flight Simulator 2024
+        makeGame(
+            "ms-flight-sim-2024", "Microsoft Flight Simulator 2024", "Flight Simulation", "Asobo Engine", 2024,
+            "2537590", "MFS", 0x082F49, 0x0369A1, 0x38BDF8,
+            "Intel Core i7-6800K or AMD Ryzen 5 2600X", "NVIDIA GeForce GTX 970 or AMD Radeon RX 5700", 16, 4,
+            "Intel Core i7-10700K or AMD Ryzen 7 2700X", "NVIDIA GeForce RTX 3080 or AMD Radeon RX 7900 XT", 32, 12,
+            50, true, true, {"DLSS", "FSR", "XeSS"}, 48,
+            {
+                "Terrain Level of Detail (TLOD) is the #1 CPU killer near major airports: keep TLOD at 100-150 for smooth landings.",
+                "Enable DLSS 3 / FSR 3 Frame Generation to double perceived smoothness from ~45 FPS to 90 FPS.",
+                "32 GB+ RAM and 12 GB+ VRAM are strongly recommended for dense photogrammetry cities."
+            }
+        ),
+        // 48. F1 24
+        makeGame(
+            "f1-24", "F1 24", "Sim Racing", "EGO Engine 4.0", 2024,
+            "2488620", "F1", 0x260808, 0x450A0A, 0xEF4444,
+            "Intel Core i3-2130 or AMD FX-4300", "NVIDIA GeForce GTX 1060 6GB or AMD Radeon RX 590", 8, 6,
+            "Intel Core i5-9600K or AMD Ryzen 5 2600X", "NVIDIA GeForce RTX 2070 or AMD Radeon RX 6700 XT", 16, 8,
+            100, true, true, {"DLSS", "FSR", "XeSS"}, 110,
+            {
+                "Disable Ray-Traced DDGI and Ray-Traced Reflections during rain races for +35% FPS.",
+                "Enable DLSS Quality or FSR 2 Quality to hit locked 120+ FPS on 144Hz ultrawide monitors.",
+                "Keep Crowd and Skidmarks at Medium to reduce CPU overhead on grid starts."
+            }
+        ),
+        // 49. Assetto Corsa Competizione
+        makeGame(
+            "assetto-corsa-competizione", "Assetto Corsa Competizione", "Sim Racing", "Unreal Engine 4", 2019,
+            "805550", "ACC", 0x111827, 0x374151, 0xF87171,
+            "Intel Core i5-4460 or AMD FX-8120", "NVIDIA GeForce GTX 460 or AMD Radeon HD 7770", 8, 4,
+            "Intel Core i5-8600K or AMD Ryzen 5 2600X", "NVIDIA GeForce GTX 1070 or AMD Radeon RX 580", 16, 8,
+            50, true, false, {"DLSS", "FSR"}, 92,
+            {
+                "Visible Cars limit has a huge CPU impact in 30-car GT3 grids: cap visible opponents to 15-20.",
+                "Set Mirrors Quality to Low/Mid and Volumetric Fog to Disabled for +20% FPS in night/rain races.",
+                "Use KTAA or DLSS Quality for clean brake-marker readability."
+            }
+        ),
+        // 50. Sid Meier's Civilization VII
+        makeGame(
+            "civilization-vii", "Sid Meier's Civilization VII", "4X Grand Strategy", "Firaxis LORE Engine", 2025,
+            "1295660", "CV7", 0x1E1B4B, 0x312E81, 0xFBBF24,
+            "Intel Core i5-8400 or AMD Ryzen 3 1200", "NVIDIA GeForce GTX 1050 Ti or AMD Radeon RX 470", 8, 4,
+            "Intel Core i5-10400 or AMD Ryzen 5 3600X", "NVIDIA GeForce RTX 2060 or AMD Radeon RX 6600", 16, 8,
+            20, true, false, {"FSR", "XeSS"}, 75,
+            {
+                "Late-game turn times depend on CPU single-core & multi-core speed rather than GPU.",
+                "Lower Leader Quality and Water Reflections to Medium on 4-6GB VRAM laptops.",
+                "Cap FPS at 60-75 Hz to keep GPU fans quiet during long strategy sessions."
+            }
+        ),
+        // 51. Cities: Skylines II
+        makeGame(
+            "cities-skylines-ii", "Cities: Skylines II", "City Builder Simulation", "Unity DOTS", 2023,
+            "949230", "CS2", 0x0F172A, 0x1E3A8A, 0x38BDF8,
+            "Intel Core i7-6700K or AMD Ryzen 5 2600X", "NVIDIA GeForce GTX 970 or AMD Radeon RX 480", 8, 4,
+            "Intel Core i5-12600K or AMD Ryzen 7 5800X", "NVIDIA GeForce RTX 3080 or AMD Radeon RX 6800 XT", 16, 10,
+            60, true, false, {"DLSS", "FSR"}, 44,
+            {
+                "Disable Depth of Field, Volumetrics Quality, and Motion Blur immediately for +30% GPU FPS.",
+                "Set Level of Detail to Low/Medium and Global Illumination to Low on 8GB VRAM GPUs.",
+                "Large 200k+ citizen cities are heavily multi-core CPU bound; 8+ CPU cores help simulation speed."
+            }
+        ),
+        // 52. Kingdom Come: Deliverance II
+        makeGame(
+            "kingdom-come-deliverance-2", "Kingdom Come: Deliverance II", "Action RPG", "CryEngine", 2025,
+            "1771300", "KCD", 0x1F160A, 0x3F2E14, 0xF59E0B,
+            "Intel Core i5-8400 or AMD Ryzen 5 2600", "NVIDIA GeForce GTX 1060 6GB or AMD Radeon RX 580", 16, 6,
+            "Intel Core i7-13700K or AMD Ryzen 7 7800X3D", "NVIDIA GeForce RTX 4070 or AMD Radeon RX 7800 XT", 32, 12,
+            100, true, false, {"DLSS", "FSR"}, 64,
+            {
+                "CryEngine SVOGI lighting and dense Kuttenberg crowds scale heavily with CPU & GPU: use High preset over Experimental.",
+                "Enable DLSS Quality or FSR 3 Quality for +25% FPS in forested Bohemia.",
+                "Keep Object Distance and Vegetation Detail at High for smooth 60+ FPS on mid-range rigs."
+            }
+        ),
+        // 53. Dragon's Dogma 2
+        makeGame(
+            "dragons-dogma-2", "Dragon's Dogma 2", "Action RPG", "RE Engine", 2024,
+            "2054970", "DD2", 0x1C0F0A, 0x3E1E12, 0xF97316,
+            "Intel Core i5-10600 or AMD Ryzen 5 3600", "NVIDIA GeForce GTX 1070 or AMD Radeon RX 5500 XT", 16, 8,
+            "Intel Core i7-10700 or AMD Ryzen 5 3600X", "NVIDIA GeForce RTX 2080 or AMD Radeon RX 6700", 16, 8,
+            65, true, true, {"DLSS", "FSR"}, 56,
+            {
+                "Vernworth and Bakbattahl are severely CPU-bound due to NPC simulation: enable DLSS 3 / FSR 3 Frame Generation if supported.",
+                "Disable Ray Tracing and lower Shadow Quality to Medium to save VRAM and stabilize frame times.",
+                "Keep Texture Quality at High (2GB-3GB) on 8GB VRAM GPUs."
+            }
+        ),
+        // 54. SILENT HILL 2
+        makeGame(
+            "silent-hill-2-remake", "SILENT HILL 2", "Survival Horror", "Unreal Engine 5", 2024,
+            "2124490", "SH2", 0x0D1318, 0x263238, 0x94A3B8,
+            "Intel Core i7-6700K or AMD Ryzen 5 3600", "NVIDIA GeForce GTX 1070 Ti or AMD Radeon RX 5700", 16, 8,
+            "Intel Core i7-8700K or AMD Ryzen 5 3600X", "NVIDIA GeForce RTX 2080 or AMD Radeon RX 6800 XT", 16, 8,
+            50, true, true, {"DLSS", "FSR", "XeSS", "TSR"}, 58,
+            {
+                "Keep Ray Tracing Off on 8GB VRAM GPUs; Software Lumen still delivers atmospheric fog and lighting.",
+                "Set Shaders and Shadows Quality to Medium for +20% FPS in foggy South Vale streets.",
+                "Enable DLSS Quality or FSR 3 Quality for smoother traversal."
+            }
+        ),
+        // 55. Indiana Jones and the Great Circle
+        makeGame(
+            "indiana-jones-great-circle", "Indiana Jones and the Great Circle", "Action Adventure", "Motor (id Tech 7)", 2024,
+            "2677660", "IND", 0x1E1308, 0x3B2310, 0xEAB308,
+            "Intel Core i7-10700K or AMD Ryzen 5 3600", "NVIDIA GeForce RTX 2060 Super or AMD Radeon RX 6600", 16, 8,
+            "Intel Core i7-12700K or AMD Ryzen 7 7700", "NVIDIA GeForce RTX 3080 Ti or AMD Radeon RX 7700 XT", 32, 12,
+            120, true, true, {"DLSS", "FSR", "XeSS"}, 66,
+            {
+                "Requires a hardware Ray Tracing GPU (RTX 2060 Super / RX 6600 or newer) to launch.",
+                "On 8GB VRAM GPUs, keep Texture Pool Size at Low/Medium to prevent severe performance drops.",
+                "Enable DLSS Quality + Frame Generation (or FSR) for smooth 60-90+ FPS."
+            }
+        ),
+        // 56. Grand Theft Auto VI (Projected)
+        makeGame(
+            "gta-vi-projected", "Grand Theft Auto VI (Projected)", "Open World Action", "RAGE 9", 2026,
+            "", "GT6", 0x24092B, 0x0F172A, 0xF472B6,
+            "Intel Core i5-12400 or AMD Ryzen 5 5600", "NVIDIA GeForce RTX 3060 12GB or AMD Radeon RX 6700 XT", 16, 8,
+            "Intel Core i7-13700K or AMD Ryzen 7 7800X3D", "NVIDIA GeForce RTX 4070 Super or AMD Radeon RX 7800 XT", 32, 12,
+            150, true, true, {"DLSS", "FSR", "XeSS"}, 60,
+            {
+                "Projected specs based on RAGE 9 RTGI: an NVMe SSD and 12GB+ VRAM GPU are strongly advised for 1440p High.",
+                "Expect DLSS 3.5 / FSR 3+ upscaling and Frame Generation to be key for high-refresh Leonida exploration.",
+                "32 GB system RAM will help eliminate streaming hitches in dense Vice City traffic."
+            }
         )
     };
 }
 
 // =============================================================================
-// Non-Invasive Read-Only Process Snapshot & Installed Game Scanner
+// Strictly Non-Invasive Zero-Library-Access Mode (No Process or Launcher Reads)
 // =============================================================================
 inline std::set<std::string> takeNonInvasiveProcessSnapshot() {
-    std::set<std::string> procs;
-#ifdef _WIN32
-    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hSnap != INVALID_HANDLE_VALUE) {
-        PROCESSENTRY32W pe = {};
-        pe.dwSize = sizeof(pe);
-        if (Process32FirstW(hSnap, &pe)) {
-            do {
-                std::string exe = toLower(trim(wideToUtf8(pe.szExeFile)));
-                if (!exe.empty()) {
-                    procs.insert(exe);
-                    if (exe.size() > 4 && exe.substr(exe.size() - 4) == ".exe") {
-                        procs.insert(exe.substr(0, exe.size() - 4));
-                    }
-                }
-            } while (Process32NextW(hSnap, &pe));
-        }
-        CloseHandle(hSnap);
-    }
-#else
-    DIR* dir = opendir("/proc");
-    if (dir) {
-        struct dirent* ent = nullptr;
-        while ((ent = readdir(dir)) != nullptr) {
-            if (ent->d_name[0] >= '0' && ent->d_name[0] <= '9') {
-                std::string commPath = std::string("/proc/") + ent->d_name + "/comm";
-                std::ifstream f(commPath);
-                std::string comm;
-                if (std::getline(f, comm)) {
-                    comm = toLower(trim(comm));
-                    if (!comm.empty()) procs.insert(comm);
-                }
-            }
-        }
-        closedir(dir);
-    }
-#endif
-    return procs;
+    // Zero-Process-Access mode: never enumerates running processes (no CreateToolhelp32Snapshot or /proc).
+    return {};
 }
 
 inline bool isGameProcessRunning(const GameSpec& game, const std::set<std::string>& runningProcs) {
@@ -1735,196 +2115,9 @@ inline std::string makeMonogram(const std::string& title) {
 }
 
 inline std::vector<GameSpec> scanInstalledGames() {
-    namespace fs = std::filesystem;
-    std::vector<GameSpec> catalog = getCatalogGames();
-    std::set<std::string> runningProcs = takeNonInvasiveProcessSnapshot();
-    std::vector<GameSpec> results;
-    std::set<std::string> seenKeys;
-
-    std::vector<fs::path> steamAppsDirs;
-    auto addSteamAppsDir = [&](const fs::path& dir) {
-        std::error_code ec;
-        if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) return;
-        steamAppsDirs.push_back(dir);
-        fs::path vdf = dir / "libraryfolders.vdf";
-        if (fs::exists(vdf, ec)) {
-            std::vector<std::string> extraPaths;
-            parseAcfKeyValues(readFileText(vdf), &extraPaths);
-            for (const auto& ep : extraPaths) {
-                fs::path candidate = fs::path(ep) / "steamapps";
-                if (fs::exists(candidate, ec) && fs::is_directory(candidate, ec)) {
-                    steamAppsDirs.push_back(candidate);
-                }
-            }
-        }
-    };
-
-#ifdef _WIN32
-    const char* relSteamPaths[] = {
-        "Program Files (x86)\\Steam\\steamapps",
-        "Program Files\\Steam\\steamapps",
-        "Steam\\steamapps",
-        "SteamLibrary\\steamapps",
-        "Games\\Steam\\steamapps",
-        "Games\\SteamLibrary\\steamapps"
-    };
-    for (char d = 'C'; d <= 'Z'; ++d) {
-        std::string root = std::string(1, d) + ":\\";
-        if (GetDriveTypeA(root.c_str()) != DRIVE_FIXED) continue;
-        for (const char* rel : relSteamPaths) {
-            addSteamAppsDir(fs::path(root + rel));
-        }
-    }
-#else
-    const char* homeEnv = std::getenv("HOME");
-    if (homeEnv) {
-        fs::path home(homeEnv);
-        addSteamAppsDir(home / ".steam/steam/steamapps");
-        addSteamAppsDir(home / ".local/share/Steam/steamapps");
-    }
-#endif
-
-    // 1. Scan Steam appmanifest_*.acf
-    for (const auto& saDir : steamAppsDirs) {
-        std::error_code ec;
-        for (const auto& entry : fs::directory_iterator(saDir, ec)) {
-            if (!entry.is_regular_file(ec)) continue;
-            std::string fname = entry.path().filename().string();
-            if (fname.rfind("appmanifest_", 0) != 0 || fname.find(".acf") == std::string::npos) continue;
-
-            auto kv = parseAcfKeyValues(readFileText(entry.path()));
-            std::string appId = kv["appid"];
-            std::string name = trim(kv["name"]);
-            if (name.empty() || isNonGameManifestName(name)) continue;
-            std::string dedup = "steam:" + (appId.empty() ? toLower(name) : appId);
-            if (seenKeys.count(dedup)) continue;
-            seenKeys.insert(dedup);
-
-            uint64_t sizeBytes = 0;
-            if (!kv["sizeondisk"].empty()) sizeBytes = std::strtoull(kv["sizeondisk"].c_str(), nullptr, 10);
-            double sizeGB = sizeBytes > 0 ? std::max(1.0, std::round((static_cast<double>(sizeBytes) / (1024.0 * 1024.0 * 1024.0)) * 10.0) / 10.0) : 25.0;
-
-            uint64_t lastPlayed = 0;
-            if (!kv["lastplayed"].empty()) lastPlayed = std::strtoull(kv["lastplayed"].c_str(), nullptr, 10);
-            else if (!kv["lastupdated"].empty()) lastPlayed = std::strtoull(kv["lastupdated"].c_str(), nullptr, 10);
-
-            std::string installDirName = !kv["installdir"].empty() ? kv["installdir"] : name;
-            fs::path installPath = saDir / "common" / installDirName;
-            std::string installPathStr = installPath.string();
-            std::string driveStr = installPathStr.size() >= 2 && installPathStr[1] == ':' ? installPathStr.substr(0, 2) : "/";
-
-            const GameSpec* matched = findMatchingCatalogGame(appId, name, catalog);
-            GameSpec g;
-            if (matched) {
-                g = *matched;
-                g.matchedCatalogId = matched->id;
-            } else {
-                g.id = slugify(name);
-                g.title = name;
-                g.genre = "PC Game";
-                g.engine = "Steam Installed Title";
-                g.releaseYear = 2024;
-                g.steamAppId = appId;
-                g.monogram = makeMonogram(name);
-                g.minCpu = "Intel Core i5-8400 or AMD Ryzen 5 1600";
-                g.minGpu = "NVIDIA GeForce GTX 1060 6GB or AMD Radeon RX 580 8GB";
-                g.minCpuScore = scoreCPU(g.minCpu).score;
-                g.minGpuScore = scoreGPU(g.minGpu, 6).score;
-                g.minRamGB = 8;
-                g.minVramGB = 4;
-                g.recCpu = "Intel Core i5-12400 or AMD Ryzen 5 5600";
-                g.recGpu = "NVIDIA GeForce RTX 3060 or AMD Radeon RX 6600 XT";
-                g.recCpuScore = scoreCPU(g.recCpu).score;
-                g.recGpuScore = scoreGPU(g.recGpu, 8).score;
-                g.recRamGB = 16;
-                g.recVramGB = 8;
-                g.storageGB = static_cast<int>(std::round(sizeGB));
-                g.ssdRequired = sizeGB >= 40.0;
-                g.supportsRT = sizeGB >= 70.0;
-                g.upscalers = { "DLSS", "FSR" };
-                g.baseRecFps = 75;
-                g.tuningTips = {
-                    "Installed on " + driveStr + " (" + std::to_string(static_cast<int>(sizeGB)) + " GB via Steam).",
-                    "Lower Shadow Quality and Volumetric Effects one step below Ultra for +15-20% FPS."
-                };
-            }
-
-            g.installed = true;
-            g.launcher = "Steam";
-            g.installDir = installPathStr;
-            g.drive = driveStr;
-            g.sizeOnDiskGB = sizeGB;
-            g.lastPlayedTimestamp = lastPlayed;
-            if (!appId.empty()) g.steamAppId = appId;
-
-            g.isRunning = isGameProcessRunning(g, runningProcs);
-            g.wasRecentlyPlayed = g.isRunning || (lastPlayed > 0);
-            if (g.isRunning) {
-                g.playStatus = "PLAYING_NOW";
-                g.playStatusLabel = "PLAYING NOW";
-            } else if (g.wasRecentlyPlayed) {
-                g.playStatus = "RECENTLY_PLAYED";
-                g.playStatusLabel = "RECENTLY PLAYED";
-            } else {
-                g.playStatus = "INSTALLED";
-                g.playStatusLabel = "INSTALLED";
-            }
-
-            results.push_back(g);
-        }
-    }
-
-#ifdef _WIN32
-    // 2. Scan Epic Games Launcher Manifests (C:\ProgramData\Epic\EpicGamesLauncher\Data\Manifests\*.item)
-    for (char d = 'C'; d <= 'Z'; ++d) {
-        std::string root = std::string(1, d) + ":\\";
-        if (GetDriveTypeA(root.c_str()) != DRIVE_FIXED) continue;
-        fs::path epicDir = fs::path(root) / "ProgramData\\Epic\\EpicGamesLauncher\\Data\\Manifests";
-        std::error_code ec;
-        if (!fs::exists(epicDir, ec) || !fs::is_directory(epicDir, ec)) continue;
-
-        for (const auto& entry : fs::directory_iterator(epicDir, ec)) {
-            if (!entry.is_regular_file(ec) || entry.path().extension() != ".item") continue;
-            std::string raw = readFileText(entry.path());
-            std::smatch mName, mLoc;
-            std::regex nameRe("\"DisplayName\"\\s*:\\s*\"([^\"]+)\"");
-            std::regex locRe("\"InstallLocation\"\\s*:\\s*\"([^\"]+)\"");
-            if (std::regex_search(raw, mName, nameRe)) {
-                std::string name = trim(mName[1].str());
-                if (name.empty() || isNonGameManifestName(name)) continue;
-                std::string dedup = "epic:" + toLower(name);
-                if (seenKeys.count(dedup)) continue;
-                seenKeys.insert(dedup);
-
-                std::string loc = std::regex_search(raw, mLoc, locRe) ? mLoc[1].str() : epicDir.string();
-                const GameSpec* matched = findMatchingCatalogGame("", name, catalog);
-                GameSpec g = matched ? *matched : catalog[0];
-                if (!matched) {
-                    g.id = slugify(name);
-                    g.title = name;
-                    g.genre = "PC Game";
-                    g.engine = "Epic Games Installed Title";
-                    g.steamAppId = "";
-                    g.monogram = makeMonogram(name);
-                } else {
-                    g.matchedCatalogId = matched->id;
-                }
-                g.installed = true;
-                g.launcher = "Epic Games";
-                g.installDir = loc;
-                g.drive = loc.size() >= 2 && loc[1] == ':' ? loc.substr(0, 2) : "C:";
-                g.sizeOnDiskGB = g.storageGB;
-                g.isRunning = isGameProcessRunning(g, runningProcs);
-                g.wasRecentlyPlayed = g.isRunning;
-                g.playStatus = g.isRunning ? "PLAYING_NOW" : "INSTALLED";
-                g.playStatusLabel = g.isRunning ? "PLAYING NOW" : "INSTALLED";
-                results.push_back(g);
-            }
-        }
-    }
-#endif
-
-    return results;
+    // Strictly Non-Invasive Zero-Library-Access Mode:
+    // Never reads Steam libraryfolders.vdf, appmanifest_*.acf, Epic manifests, or running processes.
+    return {};
 }
 
 inline int getPlayStatusSortRank(const GameSpec& g) {
@@ -1934,72 +2127,37 @@ inline int getPlayStatusSortRank(const GameSpec& g) {
     return 0;
 }
 
-inline std::vector<GameSpec> getMergedGameList(const std::vector<GameSpec>& installedGames) {
+inline std::vector<GameSpec> getMergedGameList(const std::vector<GameSpec>& customGames) {
     std::vector<GameSpec> catalog = getCatalogGames();
-    std::set<std::string> runningProcs = takeNonInvasiveProcessSnapshot();
-    std::map<std::string, GameSpec> installedByCatalogId;
-    std::vector<GameSpec> extraInstalled;
-
-    for (const auto& inst : installedGames) {
-        if (!inst.matchedCatalogId.empty()) {
-            installedByCatalogId[inst.matchedCatalogId] = inst;
-        } else {
-            const GameSpec* matched = findMatchingCatalogGame(inst.steamAppId, inst.title, catalog);
-            if (matched) {
-                installedByCatalogId[matched->id] = inst;
-            } else {
-                extraInstalled.push_back(inst);
-            }
-        }
-    }
-
     std::vector<GameSpec> merged;
-    merged.reserve(catalog.size() + extraInstalled.size());
+    merged.reserve(catalog.size() + customGames.size());
 
     for (auto g : catalog) {
-        auto it = installedByCatalogId.find(g.id);
-        if (it != installedByCatalogId.end()) {
-            const GameSpec& inst = it->second;
-            g.installed = true;
-            g.launcher = inst.launcher;
-            g.installDir = inst.installDir;
-            g.drive = inst.drive;
-            g.sizeOnDiskGB = inst.sizeOnDiskGB;
-            g.lastPlayedTimestamp = inst.lastPlayedTimestamp;
-            g.isRunning = inst.isRunning || isGameProcessRunning(g, runningProcs);
-            g.wasRecentlyPlayed = inst.wasRecentlyPlayed || g.isRunning;
-            g.playStatus = g.isRunning ? "PLAYING_NOW" : (g.wasRecentlyPlayed ? "RECENTLY_PLAYED" : "INSTALLED");
-            g.playStatusLabel = g.isRunning ? "PLAYING NOW" : (g.wasRecentlyPlayed ? "RECENTLY PLAYED" : "INSTALLED");
-        } else {
-            g.isRunning = isGameProcessRunning(g, runningProcs);
-            if (g.isRunning) {
-                g.playStatus = "PLAYING_NOW";
-                g.playStatusLabel = "PLAYING NOW";
-            } else {
-                g.playStatus = "CATALOG";
-                g.playStatusLabel = "CATALOG";
-            }
+        g.installed = false;
+        g.isRunning = false;
+        g.wasRecentlyPlayed = false;
+        g.playStatus = "CATALOG";
+        g.playStatusLabel = "CATALOG";
+        merged.push_back(std::move(g));
+    }
+
+    for (auto custom : customGames) {
+        const GameSpec* matched = findMatchingCatalogGame(custom.steamAppId, custom.title, catalog);
+        if (!matched) {
+            custom.installed = false;
+            custom.isRunning = false;
+            custom.wasRecentlyPlayed = false;
+            if (custom.playStatus.empty()) custom.playStatus = "CATALOG";
+            if (custom.playStatusLabel.empty()) custom.playStatusLabel = "CATALOG";
+            merged.push_back(std::move(custom));
         }
-        merged.push_back(g);
     }
-
-    for (const auto& ext : extraInstalled) {
-        merged.push_back(ext);
-    }
-
-    std::stable_sort(merged.begin(), merged.end(), [](const GameSpec& a, const GameSpec& b) {
-        int rankA = getPlayStatusSortRank(a);
-        int rankB = getPlayStatusSortRank(b);
-        if (rankA != rankB) return rankA > rankB;
-        if (a.lastPlayedTimestamp != b.lastPlayedTimestamp) return a.lastPlayedTimestamp > b.lastPlayedTimestamp;
-        return false;
-    });
 
     return merged;
 }
 
 inline std::vector<GameSpec> getMergedGameList() {
-    return getMergedGameList(scanInstalledGames());
+    return getMergedGameList(std::vector<GameSpec>{});
 }
 
 // =============================================================================
@@ -3430,6 +3588,875 @@ inline std::string buildSmokeTestJson(const SystemSpecs& specs, const std::vecto
         << "\",\"settingsCount\":" << drv.settings.size() << "},"
         << "\"scanDurationMs\":" << std::fixed << std::setprecision(2) << specs.scanDurationMs
         << "}";
+    return oss.str();
+}
+
+// =============================================================================
+// 11. CalVer Comparison, SHA-256 Patch Verification & WinHTTP Auto-Updater
+// =============================================================================
+
+struct CalVerParts {
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    int patch = 0;
+    bool valid = false;
+};
+
+inline CalVerParts parseCalVerStr(std::string s) {
+    CalVerParts out;
+    // Trim whitespace
+    size_t a = s.find_first_not_of(" \t\r\n");
+    if (a == std::string::npos) return out;
+    size_t b = s.find_last_not_of(" \t\r\n");
+    s = s.substr(a, b - a + 1);
+    if (!s.empty() && (s[0] == 'v' || s[0] == 'V')) {
+        s = s.substr(1);
+    }
+    std::vector<int> nums;
+    std::stringstream ss(s);
+    std::string tok;
+    while (std::getline(ss, tok, '.')) {
+        if (tok.empty()) return out;
+        for (char c : tok) {
+            if (c < '0' || c > '9') return out;
+        }
+        try {
+            nums.push_back(std::stoi(tok));
+        } catch (...) {
+            return out;
+        }
+    }
+    if (nums.size() < 3 || nums.size() > 4) return out;
+    out.year = nums[0];
+    out.month = nums[1];
+    out.day = nums[2];
+    out.patch = (nums.size() == 4) ? nums[3] : 0;
+    out.valid = (out.year >= 2000 && out.month >= 1 && out.month <= 12 && out.day >= 1 && out.day <= 31);
+    return out;
+}
+
+inline int compareCalVerStr(const std::string& a, const std::string& b) {
+    CalVerParts pa = parseCalVerStr(a);
+    CalVerParts pb = parseCalVerStr(b);
+    if (!pa.valid && !pb.valid) return 0;
+    if (!pa.valid) return -1;
+    if (!pb.valid) return 1;
+    if (pa.year != pb.year) return pa.year < pb.year ? -1 : 1;
+    if (pa.month != pb.month) return pa.month < pb.month ? -1 : 1;
+    if (pa.day != pb.day) return pa.day < pb.day ? -1 : 1;
+    if (pa.patch != pb.patch) return pa.patch < pb.patch ? -1 : 1;
+    return 0;
+}
+
+inline std::string sha256Hex(const std::string& data) {
+    static constexpr uint32_t K[64] = {
+        0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+        0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+        0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+        0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+        0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+        0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+        0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+        0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+    };
+    auto rotr = [](uint32_t x, uint32_t n) -> uint32_t { return (x >> n) | (x << (32 - n)); };
+    uint32_t h[8] = {
+        0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,
+        0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19
+    };
+
+    std::vector<uint8_t> msg(data.begin(), data.end());
+    uint64_t bitLen = static_cast<uint64_t>(msg.size()) * 8ULL;
+    msg.push_back(0x80);
+    while ((msg.size() % 64) != 56) msg.push_back(0x00);
+    for (int i = 7; i >= 0; --i) {
+        msg.push_back(static_cast<uint8_t>((bitLen >> (i * 8)) & 0xFF));
+    }
+
+    for (size_t chunk = 0; chunk < msg.size(); chunk += 64) {
+        uint32_t w[64] = {};
+        for (int i = 0; i < 16; ++i) {
+            w[i] = (static_cast<uint32_t>(msg[chunk + i * 4]) << 24) |
+                   (static_cast<uint32_t>(msg[chunk + i * 4 + 1]) << 16) |
+                   (static_cast<uint32_t>(msg[chunk + i * 4 + 2]) << 8) |
+                   static_cast<uint32_t>(msg[chunk + i * 4 + 3]);
+        }
+        for (int i = 16; i < 64; ++i) {
+            uint32_t s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
+            uint32_t s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+        }
+        uint32_t a = h[0], b = h[1], c = h[2], d = h[3];
+        uint32_t e = h[4], f = h[5], g = h[6], hh = h[7];
+        for (int i = 0; i < 64; ++i) {
+            uint32_t S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+            uint32_t ch = (e & f) ^ ((~e) & g);
+            uint32_t temp1 = hh + S1 + ch + K[i] + w[i];
+            uint32_t S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+            uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
+            uint32_t temp2 = S0 + maj;
+            hh = g; g = f; f = e; e = d + temp1;
+            d = c; c = b; b = a; a = temp1 + temp2;
+        }
+        h[0] += a; h[1] += b; h[2] += c; h[3] += d;
+        h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+    }
+
+    std::ostringstream oss;
+    oss << std::hex << std::setfill('0');
+    for (int i = 0; i < 8; ++i) {
+        oss << std::setw(8) << h[i];
+    }
+    return oss.str();
+}
+
+namespace detail {
+
+inline bool parseJsonStringAt(const std::string& json, size_t quotePos, std::string& out, size_t& endPos) {
+    if (quotePos >= json.size() || json[quotePos] != '"') return false;
+    out.clear();
+    size_t i = quotePos + 1;
+    while (i < json.size()) {
+        char c = json[i++];
+        if (c == '"') {
+            endPos = i;
+            return true;
+        }
+        if (c == '\\' && i < json.size()) {
+            char esc = json[i++];
+            if (esc == '"' || esc == '\\' || esc == '/') out.push_back(esc);
+            else if (esc == 'n') out.push_back('\n');
+            else if (esc == 'r') out.push_back('\r');
+            else if (esc == 't') out.push_back('\t');
+            else if (esc == 'b') out.push_back('\b');
+            else if (esc == 'f') out.push_back('\f');
+            else if (esc == 'u' && i + 4 <= json.size()) {
+                unsigned int cp = 0;
+                std::stringstream ss;
+                ss << std::hex << json.substr(i, 4);
+                ss >> cp;
+                i += 4;
+                if (cp < 0x80) out.push_back(static_cast<char>(cp));
+                else if (cp < 0x800) {
+                    out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+                    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+                } else {
+                    out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+                    out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+                    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+                }
+            } else {
+                out.push_back(esc);
+            }
+        } else {
+            out.push_back(c);
+        }
+    }
+    return false;
+}
+
+inline std::string extractJsonStringField(const std::string& json, const std::string& key, size_t startPos = 0) {
+    std::string needle = "\"" + key + "\"";
+    size_t pos = json.find(needle, startPos);
+    while (pos != std::string::npos) {
+        size_t colon = json.find_first_not_of(" \t\r\n", pos + needle.size());
+        if (colon != std::string::npos && json[colon] == ':') {
+            size_t valStart = json.find_first_not_of(" \t\r\n", colon + 1);
+            if (valStart != std::string::npos && json[valStart] == '"') {
+                std::string val;
+                size_t endPos = 0;
+                if (parseJsonStringAt(json, valStart, val, endPos)) {
+                    return val;
+                }
+            }
+        }
+        pos = json.find(needle, pos + needle.size());
+    }
+    return "";
+}
+
+inline size_t extractJsonSizeField(const std::string& json, const std::string& key, size_t startPos = 0) {
+    std::string needle = "\"" + key + "\"";
+    size_t pos = json.find(needle, startPos);
+    if (pos == std::string::npos) return 0;
+    size_t colon = json.find(':', pos + needle.size());
+    if (colon == std::string::npos) return 0;
+    size_t valStart = json.find_first_not_of(" \t\r\n", colon + 1);
+    if (valStart == std::string::npos) return 0;
+    size_t valEnd = valStart;
+    while (valEnd < json.size() && json[valEnd] >= '0' && json[valEnd] <= '9') ++valEnd;
+    if (valEnd == valStart) return 0;
+    try {
+        return static_cast<size_t>(std::stoull(json.substr(valStart, valEnd - valStart)));
+    } catch (...) {
+        return 0;
+    }
+}
+
+inline bool isSafeRelPath(const std::string& rel) {
+    if (rel.empty() || rel[0] == '/' || rel[0] == '\\') return false;
+    if (rel.size() >= 2 && rel[1] == ':') return false;
+    if (rel.find("..") != std::string::npos) return false;
+    return true;
+}
+
+struct RigPatchFileEntry {
+    std::string relativePath;
+    std::string sha256;
+    size_t sizeBytes = 0;
+    std::string content;
+};
+
+struct RigPatchBundle {
+    bool valid = false;
+    std::string targetVersion;
+    std::string notes;
+    std::string bundleSha256;
+    std::vector<RigPatchFileEntry> files;
+};
+
+inline RigPatchBundle parseAndVerifyRigPatch(const std::string& rawJson) {
+    RigPatchBundle b;
+    if (rawJson.empty()) return b;
+    b.targetVersion = extractJsonStringField(rawJson, "targetVersion");
+    b.notes = extractJsonStringField(rawJson, "notes");
+    b.bundleSha256 = extractJsonStringField(rawJson, "bundleSha256");
+    if (!parseCalVerStr(b.targetVersion).valid || b.bundleSha256.empty()) return b;
+
+    size_t filesPos = rawJson.find("\"files\"");
+    if (filesPos == std::string::npos) return b;
+    size_t arrStart = rawJson.find('[', filesPos);
+    if (arrStart == std::string::npos) return b;
+
+    size_t cur = arrStart + 1;
+    while (cur < rawJson.size()) {
+        size_t objStart = rawJson.find('{', cur);
+        size_t arrEnd = rawJson.find(']', cur);
+        if (objStart == std::string::npos || (arrEnd != std::string::npos && arrEnd < objStart)) break;
+
+        // Find matching '}' respecting strings
+        size_t p = objStart + 1;
+        int depth = 1;
+        while (p < rawJson.size() && depth > 0) {
+            if (rawJson[p] == '"') {
+                std::string dummy;
+                size_t endP = p + 1;
+                if (parseJsonStringAt(rawJson, p, dummy, endP)) p = endP;
+                else ++p;
+            } else if (rawJson[p] == '{') {
+                ++depth; ++p;
+            } else if (rawJson[p] == '}') {
+                --depth; ++p;
+            } else {
+                ++p;
+            }
+        }
+        if (depth != 0) return b;
+
+        std::string objStr = rawJson.substr(objStart, p - objStart);
+        RigPatchFileEntry fe;
+        fe.relativePath = extractJsonStringField(objStr, "relativePath");
+        fe.sha256 = extractJsonStringField(objStr, "sha256");
+        fe.sizeBytes = extractJsonSizeField(objStr, "sizeBytes");
+        fe.content = extractJsonStringField(objStr, "content");
+
+        if (!isSafeRelPath(fe.relativePath)) return b;
+        if (fe.content.size() != fe.sizeBytes) return b;
+        if (sha256Hex(fe.content) != fe.sha256) return b;
+
+        b.files.push_back(std::move(fe));
+        cur = p;
+    }
+
+    if (b.files.empty()) return b;
+
+    // Verify canonical bundleSha256 signature
+    std::vector<RigPatchFileEntry> sorted = b.files;
+    std::sort(sorted.begin(), sorted.end(), [](const RigPatchFileEntry& x, const RigPatchFileEntry& y) {
+        return x.relativePath < y.relativePath;
+    });
+    std::string canonical = "version:" + b.targetVersion;
+    for (const auto& f : sorted) {
+        canonical += "\n" + f.relativePath + ":" + f.sha256 + ":" + std::to_string(f.sizeBytes);
+    }
+    if (sha256Hex(canonical) != b.bundleSha256) return b;
+
+    b.valid = true;
+    return b;
+}
+
+#ifdef _WIN32
+inline bool winHttpGetToMemory(const std::wstring& url, std::string& bodyOut, int timeoutMs = 3000) {
+    bodyOut.clear();
+    URL_COMPONENTSW uc = {};
+    uc.dwStructSize = sizeof(uc);
+    wchar_t hostBuf[256] = {};
+    wchar_t pathBuf[2048] = {};
+    uc.lpszHostName = hostBuf;
+    uc.dwHostNameLength = 256;
+    uc.lpszUrlPath = pathBuf;
+    uc.dwUrlPathLength = 2048;
+
+    if (!WinHttpCrackUrl(url.c_str(), static_cast<DWORD>(url.size()), 0, &uc)) {
+        return false;
+    }
+
+    HINTERNET hSession = WinHttpOpen(L"GameCheck-Updater/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                     WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) return false;
+
+    WinHttpSetTimeouts(hSession, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
+
+    HINTERNET hConnect = WinHttpConnect(hSession, hostBuf, uc.nPort, 0);
+    if (!hConnect) {
+        WinHttpCloseHandle(hSession);
+        return false;
+    }
+
+    DWORD flags = (uc.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", pathBuf, nullptr,
+                                            WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!hRequest) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return false;
+    }
+
+    // Allow redirects for GitHub release asset downloads
+    DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
+    WinHttpSetOption(hRequest, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
+
+    const wchar_t* headers = L"Accept: application/vnd.github+json\r\nUser-Agent: GameCheck-Updater\r\n";
+    BOOL ok = WinHttpSendRequest(hRequest, headers, static_cast<DWORD>(-1), WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+              WinHttpReceiveResponse(hRequest, nullptr);
+
+    if (ok) {
+        DWORD statusCode = 0;
+        DWORD scSize = sizeof(statusCode);
+        WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                            WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &scSize, WINHTTP_NO_HEADER_INDEX);
+        if (statusCode >= 200 && statusCode < 300) {
+            DWORD avail = 0;
+            while (WinHttpQueryDataAvailable(hRequest, &avail) && avail > 0) {
+                std::string chunk(avail, '\0');
+                DWORD readBytes = 0;
+                if (WinHttpReadData(hRequest, &chunk[0], avail, &readBytes) && readBytes > 0) {
+                    bodyOut.append(chunk.data(), readBytes);
+                } else {
+                    break;
+                }
+            }
+        } else {
+            ok = FALSE;
+        }
+    }
+
+    WinHttpCloseHandle(hRequest);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+    return ok == TRUE && !bodyOut.empty();
+}
+#endif // _WIN32
+
+} // namespace detail
+
+struct UpdateCheckResult {
+    bool checked = false;
+    bool updateAvailable = false;
+    bool isLocalPatch = false;
+    bool isBinaryInstaller = false;
+    bool applied = false;
+    bool restartRequired = false;
+    std::string currentVersion;
+    std::string latestVersion;
+    std::string source;
+    std::string localPatchPath;
+    std::string downloadUrl;
+    std::string releaseNotes;
+    std::string statusMessage;
+    std::string errorMessage;
+};
+
+inline UpdateCheckResult checkForAppUpdates(const std::string& currentVersion, const std::string& appDir) {
+    UpdateCheckResult res;
+    res.currentVersion = currentVersion;
+    res.latestVersion = currentVersion;
+    res.statusMessage = "Up to date";
+
+    namespace fs = std::filesystem;
+    std::error_code ec;
+
+    // 1. Scan local <appDir>/patches/*.rigpatch.json and <appDir>/dist/patches/*.rigpatch.json
+    std::vector<fs::path> patchDirs = {
+        fs::path(appDir) / "patches",
+        fs::path(appDir) / "dist" / "patches"
+    };
+    for (const auto& dir : patchDirs) {
+        if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) continue;
+        for (const auto& entry : fs::directory_iterator(dir, ec)) {
+            if (!entry.is_regular_file(ec)) continue;
+            std::string fname = entry.path().filename().string();
+            if (fname.size() < 14 || fname.rfind(".rigpatch.json") != fname.size() - 14) continue;
+            std::string raw = readFileText(entry.path());
+            auto bundle = detail::parseAndVerifyRigPatch(raw);
+            if (!bundle.valid) continue;
+            if (compareCalVerStr(bundle.targetVersion, res.latestVersion) > 0) {
+                res.updateAvailable = true;
+                res.isLocalPatch = true;
+                res.isBinaryInstaller = false;
+                res.latestVersion = bundle.targetVersion;
+                res.localPatchPath = entry.path().string();
+                res.source = "local-patch";
+                res.releaseNotes = bundle.notes;
+                res.statusMessage = "Patch v" + bundle.targetVersion + " available";
+            }
+        }
+    }
+
+#ifdef _WIN32
+    // 2. Query GitHub Releases latest endpoint via WinHTTP (3s timeout, read-only HTTPS)
+    std::string apiJson;
+    if (detail::winHttpGetToMemory(
+            L"https://api.github.com/repos/FranciscoFlorio25/GameCheck/releases/latest",
+            apiJson,
+            3000)) {
+        std::string remoteTag = detail::extractJsonStringField(apiJson, "tag_name");
+        if (!remoteTag.empty() && compareCalVerStr(remoteTag, res.latestVersion) > 0) {
+            // Find GameCheck-Setup-*.exe or rigcheck-patch-*.rigpatch.json asset URL
+            std::string exeUrl;
+            std::string patchUrl;
+            size_t searchPos = 0;
+            while (true) {
+                size_t urlKey = apiJson.find("\"browser_download_url\"", searchPos);
+                if (urlKey == std::string::npos) break;
+                std::string urlVal = detail::extractJsonStringField(apiJson, "browser_download_url", urlKey);
+                if (urlVal.find("GameCheck-Setup-") != std::string::npos &&
+                    urlVal.find(".exe") != std::string::npos) {
+                    exeUrl = urlVal;
+                } else if (urlVal.find(".rigpatch.json") != std::string::npos) {
+                    patchUrl = urlVal;
+                }
+                searchPos = urlKey + 22;
+            }
+            if (!exeUrl.empty() || !patchUrl.empty()) {
+                std::string cleanVer = (!remoteTag.empty() && (remoteTag[0] == 'v' || remoteTag[0] == 'V'))
+                    ? remoteTag.substr(1) : remoteTag;
+                res.updateAvailable = true;
+                res.latestVersion = cleanVer;
+                res.source = "github-release";
+                res.releaseNotes = detail::extractJsonStringField(apiJson, "name");
+                if (!exeUrl.empty()) {
+                    res.isBinaryInstaller = true;
+                    res.isLocalPatch = false;
+                    res.downloadUrl = exeUrl;
+                } else {
+                    res.isBinaryInstaller = false;
+                    res.isLocalPatch = false;
+                    res.downloadUrl = patchUrl;
+                }
+                res.statusMessage = "Update v" + cleanVer + " available";
+            }
+        }
+        res.checked = true;
+    } else {
+        res.checked = true;
+        if (res.source.empty()) res.source = "offline";
+    }
+#else
+    res.checked = true;
+    if (res.source.empty()) res.source = "local";
+#endif
+
+    return res;
+}
+
+inline bool applyAutoUpdate(UpdateCheckResult& updateInfo, const std::string& appDir) {
+    if (!updateInfo.updateAvailable) return false;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+
+    if (updateInfo.isLocalPatch && !updateInfo.localPatchPath.empty()) {
+        std::string raw = readFileText(fs::path(updateInfo.localPatchPath));
+        auto bundle = detail::parseAndVerifyRigPatch(raw);
+        if (!bundle.valid) {
+            updateInfo.errorMessage = "Patch SHA-256 verification failed.";
+            return false;
+        }
+
+        // Create backup snapshot of existing target files
+        fs::path backupDir = fs::path(appDir) / "dist" / "backups";
+        fs::create_directories(backupDir, ec);
+        std::time_t now = std::time(nullptr);
+        fs::path backupPath = backupDir / ("backup-" + updateInfo.currentVersion + "-" + std::to_string(now) + ".json");
+        {
+            std::ofstream bfs(backupPath, std::ios::binary | std::ios::trunc);
+            if (bfs) {
+                bfs << "{\"previousVersion\":\"" << escapeJson(updateInfo.currentVersion)
+                    << "\",\"targetVersion\":\"" << escapeJson(bundle.targetVersion)
+                    << "\",\"fileCount\":" << bundle.files.size() << "}\n";
+            }
+        }
+
+        // Write verified patch files
+        for (const auto& f : bundle.files) {
+            fs::path dest = fs::path(appDir) / f.relativePath;
+            fs::create_directories(dest.parent_path(), ec);
+            std::ofstream ofs(dest, std::ios::binary | std::ios::trunc);
+            if (!ofs) {
+                updateInfo.errorMessage = "Failed to write patched file: " + f.relativePath;
+                return false;
+            }
+            ofs.write(f.content.data(), static_cast<std::streamsize>(f.content.size()));
+        }
+
+        updateInfo.applied = true;
+        updateInfo.statusMessage = "Updated to v" + bundle.targetVersion;
+        return true;
+    }
+
+#ifdef _WIN32
+    if (!updateInfo.downloadUrl.empty()) {
+        std::string body;
+        std::wstring wUrl(updateInfo.downloadUrl.begin(), updateInfo.downloadUrl.end());
+        if (!detail::winHttpGetToMemory(wUrl, body, 30000)) {
+            updateInfo.errorMessage = "Failed to download update from GitHub.";
+            return false;
+        }
+
+        if (updateInfo.isBinaryInstaller) {
+            if (body.size() < 10000) {
+                updateInfo.errorMessage = "Downloaded installer binary is invalid.";
+                return false;
+            }
+            wchar_t tmpDir[MAX_PATH] = {};
+            GetTempPathW(MAX_PATH, tmpDir);
+            std::wstring setupPath = std::wstring(tmpDir) + L"GameCheck-Update-Setup.exe";
+            {
+                HANDLE hFile = CreateFileW(setupPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (hFile == INVALID_HANDLE_VALUE) {
+                    updateInfo.errorMessage = "Cannot write update installer to TEMP.";
+                    return false;
+                }
+                DWORD written = 0;
+                WriteFile(hFile, body.data(), static_cast<DWORD>(body.size()), &written, nullptr);
+                CloseHandle(hFile);
+            }
+
+            std::wstring wAppDir(appDir.begin(), appDir.end());
+            std::wstring params = L"--silent --install-dir=\"" + wAppDir + L"\"";
+            SHELLEXECUTEINFOW sei = {};
+            sei.cbSize = sizeof(sei);
+            sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+            sei.lpFile = setupPath.c_str();
+            sei.lpParameters = params.c_str();
+            sei.nShow = SW_HIDE;
+            if (!ShellExecuteExW(&sei)) {
+                updateInfo.errorMessage = "Failed to launch update installer.";
+                return false;
+            }
+            if (sei.hProcess) CloseHandle(sei.hProcess);
+            updateInfo.applied = true;
+            updateInfo.restartRequired = true;
+            updateInfo.statusMessage = "Updating to v" + updateInfo.latestVersion;
+            return true;
+        } else {
+            auto bundle = detail::parseAndVerifyRigPatch(body);
+            if (!bundle.valid) {
+                updateInfo.errorMessage = "Remote patch SHA-256 verification failed.";
+                return false;
+            }
+            for (const auto& f : bundle.files) {
+                fs::path dest = fs::path(appDir) / f.relativePath;
+                fs::create_directories(dest.parent_path(), ec);
+                std::ofstream ofs(dest, std::ios::binary | std::ios::trunc);
+                if (!ofs) return false;
+                ofs.write(f.content.data(), static_cast<std::streamsize>(f.content.size()));
+            }
+            updateInfo.applied = true;
+            updateInfo.statusMessage = "Updated to v" + bundle.targetVersion;
+            return true;
+        }
+    }
+#endif
+
+    return false;
+}
+
+// =============================================================================
+// 11. Persistent User Preferences (%APPDATA%\GameCheck\settings.json | ~/.config/gamecheck/settings.json)
+// =============================================================================
+struct UserPreferences {
+    bool isSpanish = false;
+    int activeOptMode = OPT_MODE_OPTIMAL;
+    bool detailedQuickView = false;
+    std::string activeCountry = "AR";
+    int windowX = -1;
+    int windowY = -1;
+    int windowW = 1320;
+    int windowH = 820;
+};
+
+inline std::filesystem::path getUserPreferencesPath() {
+    namespace fs = std::filesystem;
+#ifdef _WIN32
+    wchar_t appData[MAX_PATH] = {};
+    DWORD len = GetEnvironmentVariableW(L"APPDATA", appData, MAX_PATH);
+    if (len > 0 && len < MAX_PATH) {
+        return fs::path(appData) / L"GameCheck" / L"settings.json";
+    }
+    wchar_t userProf[MAX_PATH] = {};
+    len = GetEnvironmentVariableW(L"USERPROFILE", userProf, MAX_PATH);
+    if (len > 0 && len < MAX_PATH) {
+        return fs::path(userProf) / L"AppData" / L"Roaming" / L"GameCheck" / L"settings.json";
+    }
+    return fs::path("GameCheck") / "settings.json";
+#else
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    if (xdg && xdg[0] != '\0') {
+        return fs::path(xdg) / "gamecheck" / "settings.json";
+    }
+    const char* home = std::getenv("HOME");
+    if (home && home[0] != '\0') {
+        return fs::path(home) / ".config" / "gamecheck" / "settings.json";
+    }
+    return fs::path(".config") / "gamecheck" / "settings.json";
+#endif
+}
+
+inline UserPreferences loadUserPreferences() {
+    UserPreferences prefs;
+    std::error_code ec;
+    std::filesystem::path cfgPath = getUserPreferencesPath();
+    if (!std::filesystem::exists(cfgPath, ec)) {
+        return prefs;
+    }
+    std::ifstream ifs(cfgPath, std::ios::binary);
+    if (!ifs) {
+        return prefs;
+    }
+    std::ostringstream ss;
+    ss << ifs.rdbuf();
+    std::string json = ss.str();
+
+    auto extractBool = [&](const std::string& key, bool defVal) -> bool {
+        std::string needle = "\"" + key + "\"";
+        size_t pos = json.find(needle);
+        if (pos == std::string::npos) return defVal;
+        size_t colon = json.find(':', pos + needle.size());
+        if (colon == std::string::npos) return defVal;
+        size_t valStart = json.find_first_not_of(" \t\r\n", colon + 1);
+        if (valStart == std::string::npos) return defVal;
+        if (json.compare(valStart, 4, "true") == 0) return true;
+        if (json.compare(valStart, 5, "false") == 0) return false;
+        return defVal;
+    };
+
+    auto extractInt = [&](const std::string& key, int defVal) -> int {
+        std::string needle = "\"" + key + "\"";
+        size_t pos = json.find(needle);
+        if (pos == std::string::npos) return defVal;
+        size_t colon = json.find(':', pos + needle.size());
+        if (colon == std::string::npos) return defVal;
+        size_t valStart = json.find_first_not_of(" \t\r\n", colon + 1);
+        if (valStart == std::string::npos) return defVal;
+        size_t valEnd = valStart;
+        if (json[valEnd] == '-') ++valEnd;
+        while (valEnd < json.size() && json[valEnd] >= '0' && json[valEnd] <= '9') ++valEnd;
+        if (valEnd == valStart || (valEnd == valStart + 1 && json[valStart] == '-')) return defVal;
+        try {
+            return std::stoi(json.substr(valStart, valEnd - valStart));
+        } catch (...) {
+            return defVal;
+        }
+    };
+
+    prefs.isSpanish = extractBool("isSpanish", false);
+    prefs.detailedQuickView = extractBool("detailedQuickView", false);
+    int mode = extractInt("activeOptMode", OPT_MODE_OPTIMAL);
+    if (mode >= 0 && mode <= 3) prefs.activeOptMode = mode;
+    std::string country = detail::extractJsonStringField(json, "activeCountry");
+    if (!country.empty()) prefs.activeCountry = country;
+    prefs.windowX = extractInt("windowX", -1);
+    prefs.windowY = extractInt("windowY", -1);
+    prefs.windowW = extractInt("windowW", 1320);
+    prefs.windowH = extractInt("windowH", 820);
+    return prefs;
+}
+
+inline bool saveUserPreferences(const UserPreferences& prefs) {
+    std::error_code ec;
+    std::filesystem::path cfgPath = getUserPreferencesPath();
+    if (!cfgPath.parent_path().empty()) {
+        std::filesystem::create_directories(cfgPath.parent_path(), ec);
+    }
+    std::ofstream ofs(cfgPath, std::ios::binary | std::ios::trunc);
+    if (!ofs) return false;
+    ofs << "{\n"
+        << "  \"isSpanish\": " << (prefs.isSpanish ? "true" : "false") << ",\n"
+        << "  \"activeOptMode\": " << prefs.activeOptMode << ",\n"
+        << "  \"detailedQuickView\": " << (prefs.detailedQuickView ? "true" : "false") << ",\n"
+        << "  \"activeCountry\": \"" << escapeJson(prefs.activeCountry) << "\",\n"
+        << "  \"windowX\": " << prefs.windowX << ",\n"
+        << "  \"windowY\": " << prefs.windowY << ",\n"
+        << "  \"windowW\": " << prefs.windowW << ",\n"
+        << "  \"windowH\": " << prefs.windowH << "\n"
+        << "}\n";
+    return ofs.good();
+}
+
+// -----------------------------------------------------------------------------
+// Upscaling & Resolution Math Engine
+// -----------------------------------------------------------------------------
+
+struct UpscaleTierInfo {
+    std::string tierName;
+    int scalePct = 100;
+    int renderWidth = 1920;
+    int renderHeight = 1080;
+    std::string renderLabel;
+    int estimatedFpsAvg = 60;
+    int vramSavedMB = 0;
+    std::string recommendation;
+};
+
+inline std::vector<UpscaleTierInfo> computeUpscalingMatrix(const SystemSpecs& specs, const GameSpec& game, int mode = OPT_MODE_OPTIMAL) {
+    int dispW = specs.display.width > 0 ? specs.display.width : 1920;
+    int dispH = specs.display.height > 0 ? specs.display.height : 1080;
+    int clampedMode = std::clamp(mode, 0, 3);
+
+    double modeMult = 1.0;
+    if (clampedMode == OPT_MODE_FULL_FPS) modeMult = 1.28;
+    else if (clampedMode == OPT_MODE_BALANCED) modeMult = 1.08;
+    else if (clampedMode == OPT_MODE_QUALITY) modeMult = 0.88;
+
+    auto roundEven = [](int dim, double factor) -> int {
+        int val = static_cast<int>(std::round((static_cast<double>(dim) * factor) / 2.0)) * 2;
+        return std::max(2, val);
+    };
+
+    struct TierDef {
+        const char* name;
+        int pct;
+        double factor;
+    };
+    const TierDef tiers[] = {
+        { "Native (100%)",      100, 1.0 },
+        { "Quality (67%)",       67,  2.0 / 3.0 },
+        { "Balanced (58%)",      58,  0.58 },
+        { "Performance (50%)",   50,  0.50 }
+    };
+
+    std::string dispTier = determineResolutionTier(dispW, dispH);
+    double dispPixels = static_cast<double>(dispW) * static_cast<double>(dispH);
+    double baseBufferMB = (dispTier == "4K") ? 2400.0 : (dispTier == "1440p" ? 1350.0 : 800.0);
+    if (game.recVramGB >= 12) baseBufferMB *= 1.15;
+
+    std::vector<UpscaleTierInfo> result;
+    result.reserve(4);
+
+    int prevFps = 0;
+    for (int i = 0; i < 4; ++i) {
+        UpscaleTierInfo info;
+        info.tierName = tiers[i].name;
+        info.scalePct = tiers[i].pct;
+        info.renderWidth = (tiers[i].pct == 100) ? dispW : roundEven(dispW, tiers[i].factor);
+        info.renderHeight = (tiers[i].pct == 100) ? dispH : roundEven(dispH, tiers[i].factor);
+
+        if (tiers[i].pct == 100) {
+            info.renderLabel = std::to_string(dispW) + "x" + std::to_string(dispH) + " (Native)";
+        } else {
+            info.renderLabel = std::to_string(info.renderWidth) + "x" + std::to_string(info.renderHeight) +
+                               " -> " + std::to_string(dispW) + "x" + std::to_string(dispH);
+        }
+
+        double renderPixels = static_cast<double>(info.renderWidth) * static_cast<double>(info.renderHeight);
+        double pixelRatioTo1080p = std::max(0.15, renderPixels / (1920.0 * 1080.0));
+        double resFactor = (renderPixels >= 1280.0 * 720.0)
+            ? getResolutionFactorForPixels(info.renderWidth, info.renderHeight)
+            : (std::round(std::pow(pixelRatioTo1080p, 0.58) * 100.0) / 100.0);
+
+        double upscaleOverhead = (tiers[i].pct == 100) ? 1.0 : 0.96;
+        int fps = computeFpsEstimate(specs, game, resFactor, modeMult * upscaleOverhead).avg;
+        if (i > 0 && fps <= prevFps) {
+            fps = prevFps + std::max(2, static_cast<int>(std::round(prevFps * 0.08)));
+        }
+        info.estimatedFpsAvg = fps;
+        prevFps = fps;
+
+        if (tiers[i].pct == 100) {
+            info.vramSavedMB = 0;
+        } else {
+            double savedFrac = std::max(0.0, 1.0 - (renderPixels / std::max(1.0, dispPixels)));
+            int rawSaved = static_cast<int>(std::round(baseBufferMB * savedFrac));
+            info.vramSavedMB = std::max(64, (rawSaved / 16) * 16);
+        }
+
+        if (tiers[i].pct == 100) {
+            info.recommendation = (dispTier == "1080p") ? "Best native clarity (Recommended for 1080p)" : "Maximum native sharpness";
+        } else if (tiers[i].pct == 67) {
+            info.recommendation = (dispTier != "1080p") ? "Sweet spot: near-native IQ + strong FPS gain" : "Great FPS boost with minimal softness";
+        } else if (tiers[i].pct == 58) {
+            info.recommendation = (clampedMode == OPT_MODE_FULL_FPS) ? "Ideal for high-Hz competitive play" : "Extra headroom for heavy RT/shaders";
+        } else {
+            info.recommendation = "Max FPS / Low-VRAM fallback (best at 4K)";
+        }
+
+        result.push_back(std::move(info));
+    }
+
+    return result;
+}
+
+// -----------------------------------------------------------------------------
+// 1-Click Shareable Rig & Settings Summary
+// -----------------------------------------------------------------------------
+
+inline std::string buildShareableSummaryText(const SystemSpecs& specs, const GameSpec& game, const GameAnalysis& an, bool isSpanish = false) {
+    DriverAdvisorResult drv = getDriverAppRecommendations(specs, game, an.mode);
+    int dispW = specs.display.width > 0 ? specs.display.width : an.screenWidth;
+    int dispH = specs.display.height > 0 ? specs.display.height : an.screenHeight;
+    int dispHz = specs.display.refreshRateHz > 0 ? specs.display.refreshRateHz : an.refreshRateHz;
+
+    std::ostringstream oss;
+    oss << "=== GameCheck v" << FULL_VERSION << " ===\n";
+    if (isSpanish) {
+        oss << "Equipo Detectado:\n"
+            << "  CPU: " << specs.cpu.name << " (" << specs.cpu.threads << " hilos)\n"
+            << "  GPU: " << specs.gpu.name << " (" << specs.gpu.vramGB << " GB VRAM)\n"
+            << "  RAM: " << specs.ram.totalGB << " GB\n"
+            << "  Pantalla: " << dispW << "x" << dispH << " @ " << dispHz << " Hz\n\n"
+            << "Juego: " << game.title << "\n"
+            << "Veredicto: " << an.verdictBadge << " | Modo: " << an.modeLabel << "\n"
+            << "FPS Estimados en Pantalla: ~" << an.estimatedScreenFps.avg << " FPS (" << an.estimatedScreenFps.range << ")\n\n"
+            << "Ajustes Recomendados:\n"
+            << "  Resolucion: " << an.targetResolution << "\n"
+            << "  Preset: " << an.preset << "\n"
+            << "  Escalado: " << an.upscalingMode << "\n"
+            << "  Texturas: " << an.textures << "\n"
+            << "  Sombras: " << an.shadows << "\n"
+            << "  Ray Tracing: " << an.rayTracing << "\n"
+            << "  Frame Gen: " << an.frameGen << "\n\n"
+            << "App de Drivers (" << drv.suiteName << "): " << drv.summary << "\n";
+    } else {
+        oss << "Detected Rig:\n"
+            << "  CPU: " << specs.cpu.name << " (" << specs.cpu.threads << "T)\n"
+            << "  GPU: " << specs.gpu.name << " (" << specs.gpu.vramGB << " GB VRAM)\n"
+            << "  RAM: " << specs.ram.totalGB << " GB\n"
+            << "  Display: " << dispW << "x" << dispH << " @ " << dispHz << " Hz\n\n"
+            << "Game: " << game.title << "\n"
+            << "Verdict: " << an.verdictBadge << " | Mode: " << an.modeLabel << "\n"
+            << "Predicted FPS on Screen: ~" << an.estimatedScreenFps.avg << " FPS (" << an.estimatedScreenFps.range << ")\n\n"
+            << "Recommended Settings:\n"
+            << "  Resolution: " << an.targetResolution << "\n"
+            << "  Preset: " << an.preset << "\n"
+            << "  Upscaling: " << an.upscalingMode << "\n"
+            << "  Textures: " << an.textures << "\n"
+            << "  Shadows: " << an.shadows << "\n"
+            << "  Ray Tracing: " << an.rayTracing << "\n"
+            << "  Frame Gen: " << an.frameGen << "\n\n"
+            << "Driver App (" << drv.suiteName << "): " << drv.summary << "\n";
+    }
     return oss.str();
 }
 

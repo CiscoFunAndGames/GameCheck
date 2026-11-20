@@ -33,7 +33,7 @@ function buildPayloadStage(stageDir) {
   }
   fs.mkdirSync(stageDir, { recursive: true });
 
-  const dirsToCopy = ['src', 'public', 'scripts', 'bin', 'native'];
+  const dirsToCopy = ['src', 'public', 'scripts', 'bin', 'native', 'assets'];
   for (const dirName of dirsToCopy) {
     const srcDir = path.join(ROOT_DIR, dirName);
     if (fs.existsSync(srcDir)) {
@@ -90,7 +90,7 @@ function generateWindowsManifestXml(fullVersion) {
 function generateLinuxInstallerScript(calver, fullVersion, payloadZipBase64) {
   return `#!/usr/bin/env bash
 # ==============================================================================
-# RigCheck Optimizer — Native Self-Contained Linux Installer (CalVer v${fullVersion})
+# GameCheck — Native Self-Contained Linux Installer & Uninstaller (CalVer v${fullVersion})
 # Prompts for user / sudo permissions, checks & installs missing Linux packages
 # (nodejs, npm, g++, pciutils, mesa-utils, x11-xserver-utils, unzip), compiles
 # the C++17 native probe (rigcheck_probe.cpp), and ensures Electron is installed.
@@ -99,7 +99,7 @@ set -e
 
 CALVER="${calver}"
 FULL_VERSION="${fullVersion}"
-INSTALL_DIR="\${HOME}/.local/share/rigcheck-optimizer"
+INSTALL_DIR="\${HOME}/.local/share/GameChecker"
 BIN_DIR="\${HOME}/.local/bin"
 APPS_DIR="\${HOME}/.local/share/applications"
 VERIFY_ONLY=0
@@ -132,7 +132,7 @@ for arg in "$@"; do
 done
 
 if [ "$VERIFY_ONLY" -eq 1 ]; then
-  echo "{\\"status\\":\\"INSTALLER_OK\\",\\"appName\\":\\"RigCheck Optimizer\\",\\"calver\\":\\"\${CALVER}\\",\\"fullVersion\\":\\"\${FULL_VERSION}\\",\\"installerType\\":\\"linux-sh\\",\\"dependenciesManaged\\":[\\"nodejs\\",\\"npm\\",\\"electron\\",\\"g++\\",\\"pciutils\\",\\"mesa-utils\\",\\"x11-xserver-utils\\",\\"unzip\\"]}"
+  echo "{\\"status\\":\\"INSTALLER_OK\\",\\"appName\\":\\"GameCheck\\",\\"calver\\":\\"\${CALVER}\\",\\"fullVersion\\":\\"\${FULL_VERSION}\\",\\"installerType\\":\\"linux-sh\\",\\"dependenciesManaged\\":[\\"nodejs\\",\\"npm\\",\\"electron\\",\\"g++\\",\\"pciutils\\",\\"mesa-utils\\",\\"x11-xserver-utils\\",\\"unzip\\"]}"
   exit 0
 fi
 
@@ -161,22 +161,44 @@ if [ "$CHECK_DEPS_ONLY" -eq 1 ]; then
 fi
 
 if [ "$UNINSTALL" -eq 1 ]; then
+  if [ "$SILENT_MODE" -eq 0 ] && [ -t 0 ]; then
+    read -r -p "Are you sure you want to completely uninstall GameCheck and remove all application files and shortcuts? [y/N] " CONFIRM_UNINSTALL
+    case "\${CONFIRM_UNINSTALL}" in
+      [yY][eE][sS]|[yY]) ;;
+      *)
+        echo "Uninstall cancelled."
+        exit 1
+        ;;
+    esac
+  fi
   rm -rf "\${INSTALL_DIR}"
+  rm -f "\${BIN_DIR}/gamecheck"
+  rm -f "\${BIN_DIR}/gamecheck-uninstall"
+  rm -f "\${APPS_DIR}/gamecheck.desktop"
+  rm -f "\${APPS_DIR}/gamecheck-uninstall.desktop"
   rm -f "\${BIN_DIR}/rigcheck-optimizer"
   rm -f "\${APPS_DIR}/rigcheck-optimizer.desktop"
-  echo "[RigCheck Linux Uninstaller] Removed RigCheck Optimizer v\${FULL_VERSION}."
+  echo "GameCheck v\${FULL_VERSION} has been completely uninstalled."
   exit 0
 fi
 
 if [ "$SILENT_MODE" -eq 0 ]; then
   echo "=============================================================="
-  echo "   RigCheck Optimizer Linux Installer — CalVer v\${FULL_VERSION}"
+  echo "   GameCheck Linux Installer — CalVer v\${FULL_VERSION}"
   echo "=============================================================="
+  echo "Tip: Enter /opt/GameChecker for a system-wide installation (uses sudo)."
+  if [ -t 0 ]; then
+    read -r -p "Choose install directory [\${HOME}/.local/share/GameChecker]: " USER_DIR
+    if [ -n "\${USER_DIR}" ]; then
+      INSTALL_DIR="\${USER_DIR}"
+    fi
+  fi
   echo "Target directory : \${INSTALL_DIR}"
-  echo "Launcher symlink : \${BIN_DIR}/rigcheck-optimizer"
+  echo "Launcher command : \${BIN_DIR}/gamecheck"
+  echo "Uninstaller cmd  : \${BIN_DIR}/gamecheck-uninstall"
   echo ""
   if [ -t 0 ]; then
-    read -r -p "Do you grant permission to install RigCheck Optimizer and verify dependencies? [Y/n] " USER_CONSENT
+    read -r -p "Do you grant permission to install GameCheck and verify dependencies? [Y/n] " USER_CONSENT
     case "\${USER_CONSENT}" in
       [nN][oO]|[nN])
         echo "{\\"status\\":\\"CANCELLED\\",\\"reason\\":\\"User declined installation permission\\"}"
@@ -184,6 +206,15 @@ if [ "$SILENT_MODE" -eq 0 ]; then
         ;;
     esac
   fi
+fi
+
+DIR_SUDO=""
+CHECK_PATH="\${INSTALL_DIR}"
+while [ ! -e "\${CHECK_PATH}" ] && [ "\${CHECK_PATH}" != "/" ]; do
+  CHECK_PATH="\$(dirname "\${CHECK_PATH}")"
+done
+if [ ! -w "\${CHECK_PATH}" ] && [ "\$(id -u)" -ne 0 ]; then
+  DIR_SUDO="sudo"
 fi
 
 # 1. Check and install missing Linux system dependencies
@@ -198,7 +229,7 @@ if [ "$SKIP_DEPS" -eq 0 ]; then
   command -v unzip >/dev/null 2>&1 || MISSING_CMDS+=("unzip")
 
   if [ "\${#MISSING_CMDS[@]}" -gt 0 ]; then
-    echo "[RigCheck Setup] Missing Linux packages detected: \${MISSING_CMDS[*]}"
+    echo "[GameCheck Setup] Missing Linux packages detected: \${MISSING_CMDS[*]}"
     ALLOW_SUDO=1
     if [ "$SILENT_MODE" -eq 0 ] && [ -t 0 ]; then
       read -r -p "Grant permission to install missing system dependencies via sudo? [Y/n] " SUDO_CONSENT
@@ -227,35 +258,47 @@ if [ "$SKIP_DEPS" -eq 0 ]; then
   fi
 fi
 
-mkdir -p "\${INSTALL_DIR}" "\${BIN_DIR}" "\${APPS_DIR}"
+\$DIR_SUDO mkdir -p "\${INSTALL_DIR}"
+mkdir -p "\${BIN_DIR}" "\${APPS_DIR}"
 
-PAYLOAD_ZIP="\${INSTALL_DIR}/_payload.zip"
+PAYLOAD_ZIP="/tmp/gamecheck_payload_\$\$.zip"
 base64 -d << 'EOF_RIGCHECK_PAYLOAD' > "\${PAYLOAD_ZIP}"
 ${payloadZipBase64}
 EOF_RIGCHECK_PAYLOAD
 
 if command -v unzip >/dev/null 2>&1; then
-  unzip -o -q "\${PAYLOAD_ZIP}" -d "\${INSTALL_DIR}"
+  \$DIR_SUDO unzip -o -q "\${PAYLOAD_ZIP}" -d "\${INSTALL_DIR}"
 elif command -v python3 >/dev/null 2>&1; then
-  python3 -m zipfile -e "\${PAYLOAD_ZIP}" "\${INSTALL_DIR}"
+  \$DIR_SUDO python3 -m zipfile -e "\${PAYLOAD_ZIP}" "\${INSTALL_DIR}"
 fi
 rm -f "\${PAYLOAD_ZIP}"
-chmod +x "\${INSTALL_DIR}/rigcheck-desktop.sh" 2>/dev/null || true
+\$DIR_SUDO chmod +x "\${INSTALL_DIR}/gamecheck-desktop.sh" "\${INSTALL_DIR}/rigcheck-desktop.sh" 2>/dev/null || true
 
-# 2. Compile C++17 Native Display Driver Probe for Linux if g++ is present
-if command -v g++ >/dev/null 2>&1 && [ -f "\${INSTALL_DIR}/native/rigcheck_probe.cpp" ]; then
-  mkdir -p "\${INSTALL_DIR}/bin"
-  g++ -O2 -std=c++17 "\${INSTALL_DIR}/native/rigcheck_probe.cpp" -o "\${INSTALL_DIR}/bin/rigcheck-native-probe" 2>/dev/null || true
-  chmod +x "\${INSTALL_DIR}/bin/rigcheck-native-probe" 2>/dev/null || true
+# 2. Compile C++17 Native Display Driver Probe & Desktop GUI for Linux if g++ is present
+if command -v g++ >/dev/null 2>&1; then
+  \$DIR_SUDO mkdir -p "\${INSTALL_DIR}/bin"
+  if [ -f "\${INSTALL_DIR}/native/rigcheck_probe.cpp" ]; then
+    \$DIR_SUDO g++ -O2 -std=c++17 "\${INSTALL_DIR}/native/rigcheck_probe.cpp" -o "\${INSTALL_DIR}/bin/rigcheck-native-probe" 2>/dev/null || true
+    \$DIR_SUDO chmod +x "\${INSTALL_DIR}/bin/rigcheck-native-probe" 2>/dev/null || true
+  fi
+  if [ -f "\${INSTALL_DIR}/native/gamecheck_desktop.cpp" ]; then
+    if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists gtk+-3.0 2>/dev/null; then
+      \$DIR_SUDO g++ -O2 -std=c++17 -DGAMECHECK_USE_GTK "\${INSTALL_DIR}/native/gamecheck_desktop.cpp" -o "\${INSTALL_DIR}/bin/gamecheck" \$(pkg-config --cflags --libs gtk+-3.0) -lpthread 2>/dev/null || \
+      \$DIR_SUDO g++ -O2 -std=c++17 "\${INSTALL_DIR}/native/gamecheck_desktop.cpp" -o "\${INSTALL_DIR}/bin/gamecheck" -lpthread 2>/dev/null || true
+    else
+      \$DIR_SUDO g++ -O2 -std=c++17 "\${INSTALL_DIR}/native/gamecheck_desktop.cpp" -o "\${INSTALL_DIR}/bin/gamecheck" -lpthread 2>/dev/null || true
+    fi
+    \$DIR_SUDO chmod +x "\${INSTALL_DIR}/bin/gamecheck" 2>/dev/null || true
+  fi
 fi
 
 # 3. Install Electron runtime via npm if not yet present in node_modules
 if [ "$SKIP_DEPS" -eq 0 ] && [ ! -d "\${INSTALL_DIR}/node_modules/electron" ] && command -v npm >/dev/null 2>&1; then
-  echo "[RigCheck Setup] Installing Electron desktop runtime via npm install..."
-  (cd "\${INSTALL_DIR}" && npm install --no-audit --no-fund) || true
+  echo "[GameCheck Setup] Installing Electron desktop runtime via npm install..."
+  (cd "\${INSTALL_DIR}" && \$DIR_SUDO npm install --no-audit --no-fund) || true
 fi
 
-cat << EOF_LAUNCHER > "\${BIN_DIR}/rigcheck-optimizer"
+cat << EOF_LAUNCHER > "\${BIN_DIR}/gamecheck"
 #!/usr/bin/env bash
 cd "\${INSTALL_DIR}"
 if [ -x "./node_modules/.bin/electron" ]; then
@@ -266,29 +309,72 @@ else
   exec node "\${INSTALL_DIR}/src/cli.js" "\\$@"
 fi
 EOF_LAUNCHER
-chmod +x "\${BIN_DIR}/rigcheck-optimizer"
+chmod +x "\${BIN_DIR}/gamecheck"
 
-cat << EOF_UNINSTALL > "\${INSTALL_DIR}/uninstall.sh"
+cat << EOF_UNINSTALL > "\${BIN_DIR}/gamecheck-uninstall"
 #!/usr/bin/env bash
+set -e
+SILENT=0
+for arg in "\\$@"; do
+  case "\\$arg" in
+    --silent|-y|--yes)
+      SILENT=1
+      ;;
+  esac
+done
+
+if [ "\\$SILENT" -eq 0 ]; then
+  read -r -p "Are you sure you want to completely uninstall GameCheck and remove all application files and shortcuts? [y/N] " CONFIRM
+  case "\\$CONFIRM" in
+    [yY][eE][sS]|[yY]) ;;
+    *)
+      echo "Uninstall cancelled."
+      exit 1
+      ;;
+  esac
+fi
+
 rm -rf "\${INSTALL_DIR}"
+rm -f "\${BIN_DIR}/gamecheck"
+rm -f "\${BIN_DIR}/gamecheck-uninstall"
+rm -f "\${APPS_DIR}/gamecheck.desktop"
+rm -f "\${APPS_DIR}/gamecheck-uninstall.desktop"
 rm -f "\${BIN_DIR}/rigcheck-optimizer"
 rm -f "\${APPS_DIR}/rigcheck-optimizer.desktop"
-echo "RigCheck Optimizer uninstalled."
+echo "GameCheck has been completely uninstalled."
 EOF_UNINSTALL
+chmod +x "\${BIN_DIR}/gamecheck-uninstall"
+
+cat << EOF_UNINSTALL_LOCAL > "\${INSTALL_DIR}/uninstall.sh"
+#!/usr/bin/env bash
+exec "\${BIN_DIR}/gamecheck-uninstall" "\\$@"
+EOF_UNINSTALL_LOCAL
 chmod +x "\${INSTALL_DIR}/uninstall.sh"
 
-cat << EOF_DESKTOP > "\${APPS_DIR}/rigcheck-optimizer.desktop"
+cat << EOF_DESKTOP > "\${APPS_DIR}/gamecheck.desktop"
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=RigCheck Optimizer
-Comment=Cross-Platform PC Hardware & Game Configuration Optimizer (CalVer v\${FULL_VERSION})
-Exec=\${BIN_DIR}/rigcheck-optimizer
+Name=GameCheck
+Comment=Cross-Platform PC Hardware & Game Compatibility Checker (CalVer v\${FULL_VERSION})
+Exec=\${BIN_DIR}/gamecheck
 Path=\${INSTALL_DIR}
 Terminal=false
 Categories=Game;Utility;System;
 StartupNotify=true
 EOF_DESKTOP
+
+cat << EOF_DESKTOP_UNINSTALL > "\${APPS_DIR}/gamecheck-uninstall.desktop"
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Uninstall GameCheck
+Comment=Uninstall GameCheck and remove all application files and shortcuts
+Exec=\${BIN_DIR}/gamecheck-uninstall
+Terminal=true
+Categories=Utility;System;
+StartupNotify=false
+EOF_DESKTOP_UNINSTALL
 
 echo "{\\"status\\":\\"INSTALLED\\",\\"calver\\":\\"\${CALVER}\\",\\"installerType\\":\\"linux-sh\\",\\"installDir\\":\\"\${INSTALL_DIR}\\"}"
 `;
@@ -330,31 +416,42 @@ function buildInstallers() {
 
   const guiCppPath = path.join(ROOT_DIR, 'native', 'gamecheck_desktop.cpp');
   const coreHppPath = path.join(ROOT_DIR, 'native', 'gamecheck_core.hpp');
+  const rcGuiPath = path.join(ROOT_DIR, 'native', 'gamecheck.rc');
+  const icoPath = path.join(ROOT_DIR, 'assets', 'gamecheck.ico');
   if (process.platform === 'win32' && fs.existsSync(guiCppPath) && fs.existsSync(coreHppPath)) {
     fs.mkdirSync(path.join(ROOT_DIR, 'bin'), { recursive: true });
-    execFileSync(
-      toolchain.gpp,
-      [
-        '-O2',
-        '-std=c++17',
-        'native/gamecheck_desktop.cpp',
-        '-o',
-        'bin/GameCheck.exe',
-        '-lgdiplus',
-        '-luxtheme',
-        '-lcomctl32',
-        '-lcomdlg32',
-        '-lshell32',
-        '-luser32',
-        '-lgdi32',
-        '-ladvapi32',
-        '-lole32',
-        '-luuid',
-        '-static',
-        '-s'
-      ],
-      { cwd: ROOT_DIR, env: buildEnv }
+    const guiCompileArgs = [
+      '-O2',
+      '-std=c++17',
+      '-mwindows',
+      'native/gamecheck_desktop.cpp'
+    ];
+    if (fs.existsSync(rcGuiPath) && fs.existsSync(icoPath)) {
+      execFileSync(
+        toolchain.windres,
+        ['native/gamecheck.rc', '-O', 'coff', '-o', 'native/gamecheck_res.o'],
+        { cwd: ROOT_DIR, env: buildEnv }
+      );
+      guiCompileArgs.push('native/gamecheck_res.o');
+    }
+    guiCompileArgs.push(
+      '-o',
+      'bin/GameCheck.exe',
+      '-lgdiplus',
+      '-luxtheme',
+      '-lcomctl32',
+      '-lcomdlg32',
+      '-lshell32',
+      '-luser32',
+      '-lgdi32',
+      '-ladvapi32',
+      '-lole32',
+      '-luuid',
+      '-lwinhttp',
+      '-static',
+      '-s'
     );
+    execFileSync(toolchain.gpp, guiCompileArgs, { cwd: ROOT_DIR, env: buildEnv });
   }
 
   const stageDir = path.join(DIST_DIR, '_stage_payload');
@@ -395,8 +492,11 @@ function buildInstallers() {
 `;
     fs.writeFileSync(configHeaderPath, configHeader, 'utf8');
 
+    const installerIconLine = fs.existsSync(icoPath)
+      ? '101 ICON "../assets/gamecheck.ico"\n'
+      : '';
     const rcContent = `#include <windows.h>
-101 RCDATA "${payloadZipName}"
+${installerIconLine}101 RCDATA "${payloadZipName}"
 `;
     fs.writeFileSync(rcPath, rcContent, 'utf8');
 
@@ -416,6 +516,7 @@ function buildInstallers() {
         '-o',
         `dist/${gameCheckExeName}`,
         '-luser32',
+        '-lgdi32',
         '-lshell32',
         '-ladvapi32',
         '-lole32',
