@@ -200,6 +200,13 @@ int main() {
     check(jsonText.find("\"driverAdvisor\"") != std::string::npos && jsonText.find("\"driverSuites\"") != std::string::npos, "exportConfigJson() includes driverSuites & driverAdvisor");
     check(mdText.find("GPU Driver App Configuration") != std::string::npos, "exportConfigMd() includes GPU Driver App Configuration section");
 
+    // 8. CalVer Comparison & SHA-256 Auto-Updater Core
+    std::cout << "\n[8/8] Testing CalVer Comparison & SHA-256 Auto-Updater Core...\n";
+    check(GameCheck::compareCalVerStr("v2026.11.18.4", "2026.11.17.2") > 0, "compareCalVerStr('v2026.11.18.4', '2026.11.17.2') > 0");
+    check(GameCheck::compareCalVerStr("2026.11.17.2", "2026.11.17.2") == 0, "compareCalVerStr('2026.11.17.2', '2026.11.17.2') == 0");
+    check(GameCheck::compareCalVerStr("2026.11.17", "2026.11.17.1") < 0, "compareCalVerStr('2026.11.17', '2026.11.17.1') < 0");
+    check(GameCheck::sha256Hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "sha256Hex('abc') matches NIST test vector");
+
     std::cout << "\n================================================================\n";
     std::cout << "  PASSED: " << g_passed << " | FAILED: " << g_failed << "\n";
     std::cout << "================================================================\n";

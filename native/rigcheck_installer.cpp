@@ -370,16 +370,295 @@ static std::string detectRuntimeWorkspace() {
     return "";
 }
 
+static std::string getDefaultProgramFilesInstallDir() {
+    wchar_t pfBuf[MAX_PATH] = {};
+    if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PROGRAM_FILES, nullptr, SHGFP_TYPE_CURRENT, pfBuf)) && pfBuf[0] != L'\0') {
+        return normalizeWinPath(wideToUtf8(pfBuf) + "\\GameChecker");
+    }
+    std::string pfEnv = getEnvVar("ProgramFiles");
+    if (!pfEnv.empty()) {
+        return normalizeWinPath(pfEnv + "\\GameChecker");
+    }
+    return "C:\\Program Files\\GameChecker";
+}
+
+static bool isProtectedSystemPath(const std::string& dir) {
+    std::string low = toLowerAscii(normalizeWinPath(dir));
+    return (low.find("\\program files") != std::string::npos ||
+            low.find("\\windows\\") != std::string::npos ||
+            low == "c:\\windows");
+}
+
+static bool canWriteToDir(const std::string& targetDir) {
+    std::string probeDir = normalizeWinPath(targetDir);
+    while (!probeDir.empty() && !dirExists(probeDir)) {
+        std::string parent = getParentDir(probeDir);
+        if (parent == probeDir || parent.empty()) break;
+        probeDir = parent;
+    }
+    if (probeDir.empty() || !dirExists(probeDir)) return false;
+
+    std::wstring probeFile = utf8ToWide(probeDir + "\\._gc_write_probe.tmp");
+    HANDLE h = CreateFileW(probeFile.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    CloseHandle(h);
+    return true;
+}
+
+// =============================================================================
+// Interactive Dark-Theme Setup Dialog (Folder Selection + Browse + Install/Cancel)
+// =============================================================================
+struct SetupDialogState {
+    std::string targetDir;
+    std::string fullVersion;
+    bool accepted = false;
+    bool done = false;
+    HWND hwnd = nullptr;
+    HWND hEditPath = nullptr;
+    HWND hBtnBrowse = nullptr;
+    HWND hBtnInstall = nullptr;
+    HWND hBtnCancel = nullptr;
+    HBRUSH hBgBrush = nullptr;
+    HBRUSH hEditBrush = nullptr;
+    HFONT hFontTitle = nullptr;
+    HFONT hFontUi = nullptr;
+    HFONT hFontBold = nullptr;
+};
+
+static SetupDialogState* g_setupDlg = nullptr;
+
+#define IDC_SETUP_EDIT_PATH  1001
+#define IDC_SETUP_BTN_BROWSE 1002
+#define IDC_SETUP_BTN_INSTALL 1003
+#define IDC_SETUP_BTN_CANCEL 1004
+
+static LRESULT CALLBACK SetupDlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    SetupDialogState* st = g_setupDlg;
+    switch (msg) {
+        case WM_CREATE: {
+            st->hwnd = hwnd;
+            st->hBgBrush = CreateSolidBrush(RGB(12, 12, 20));
+            st->hEditBrush = CreateSolidBrush(RGB(22, 24, 38));
+            st->hFontTitle = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                         DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+            st->hFontUi = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                      OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                      DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+            st->hFontBold = CreateFontW(-13, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                        DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+
+            std::wstring titleText = L"GameCheck Setup \x2014 CalVer v" + utf8ToWide(st->fullVersion);
+            HWND hTitle = CreateWindowExW(0, L"STATIC", titleText.c_str(), WS_CHILD | WS_VISIBLE | SS_LEFT,
+                                          20, 16, 480, 26, hwnd, nullptr, nullptr, nullptr);
+            SendMessageW(hTitle, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontTitle), TRUE);
+
+            HWND hDesc = CreateWindowExW(
+                0, L"STATIC",
+                L"Choose the installation folder. All application files (GameCheck.exe, native probe,\n"
+                L"scripts, and uninstaller) will be installed self-contained inside this folder.",
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                20, 48, 480, 36, hwnd, nullptr, nullptr, nullptr
+            );
+            SendMessageW(hDesc, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontUi), TRUE);
+
+            HWND hLblPath = CreateWindowExW(0, L"STATIC", L"Install Folder:", WS_CHILD | WS_VISIBLE | SS_LEFT,
+                                            20, 94, 200, 20, hwnd, nullptr, nullptr, nullptr);
+            SendMessageW(hLblPath, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontBold), TRUE);
+
+            st->hEditPath = CreateWindowExW(
+                WS_EX_CLIENTEDGE, L"EDIT", utf8ToWide(st->targetDir).c_str(),
+                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | WS_TABSTOP,
+                20, 118, 386, 28, hwnd, reinterpret_cast<HMENU>(IDC_SETUP_EDIT_PATH), nullptr, nullptr
+            );
+            SendMessageW(st->hEditPath, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontUi), TRUE);
+
+            st->hBtnBrowse = CreateWindowExW(
+                0, L"BUTTON", L"Browse...",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
+                414, 117, 90, 30, hwnd, reinterpret_cast<HMENU>(IDC_SETUP_BTN_BROWSE), nullptr, nullptr
+            );
+            SendMessageW(st->hBtnBrowse, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontUi), TRUE);
+
+            HWND hNote = CreateWindowExW(
+                0, L"STATIC",
+                L"\x2022 Creates Desktop & Start Menu shortcuts + Uninstall-GameCheck.exe\n"
+                L"\x2022 Administrator UAC permission will be requested if installing to Program Files",
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                20, 158, 484, 36, hwnd, nullptr, nullptr, nullptr
+            );
+            SendMessageW(hNote, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontUi), TRUE);
+
+            st->hBtnInstall = CreateWindowExW(
+                0, L"BUTTON", L"Install",
+                WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | WS_TABSTOP,
+                298, 208, 100, 32, hwnd, reinterpret_cast<HMENU>(IDC_SETUP_BTN_INSTALL), nullptr, nullptr
+            );
+            SendMessageW(st->hBtnInstall, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontBold), TRUE);
+
+            st->hBtnCancel = CreateWindowExW(
+                0, L"BUTTON", L"Cancel",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
+                404, 208, 100, 32, hwnd, reinterpret_cast<HMENU>(IDC_SETUP_BTN_CANCEL), nullptr, nullptr
+            );
+            SendMessageW(st->hBtnCancel, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontUi), TRUE);
+            return 0;
+        }
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            FillRect(hdc, &rc, st->hBgBrush);
+            // Subtle top accent bar (#FACC15)
+            RECT accent = { 0, 0, rc.right, 3 };
+            HBRUSH hAcc = CreateSolidBrush(RGB(250, 204, 21));
+            FillRect(hdc, &accent, hAcc);
+            DeleteObject(hAcc);
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_CTLCOLORSTATIC: {
+            HDC hdc = reinterpret_cast<HDC>(wParam);
+            SetTextColor(hdc, RGB(226, 232, 240));
+            SetBkColor(hdc, RGB(12, 12, 20));
+            return reinterpret_cast<LRESULT>(st->hBgBrush);
+        }
+        case WM_CTLCOLOREDIT: {
+            HDC hdc = reinterpret_cast<HDC>(wParam);
+            SetTextColor(hdc, RGB(248, 250, 252));
+            SetBkColor(hdc, RGB(22, 24, 38));
+            return reinterpret_cast<LRESULT>(st->hEditBrush);
+        }
+        case WM_COMMAND: {
+            int id = LOWORD(wParam);
+            if (id == IDC_SETUP_BTN_BROWSE) {
+                HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+                BROWSEINFOW bi = {};
+                bi.hwndOwner = hwnd;
+                bi.lpszTitle = L"Select GameCheck Installation Folder";
+                bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_EDITBOX;
+                PIDLIST_ABSOLUTE pidl = SHBrowseForFolderW(&bi);
+                if (pidl) {
+                    wchar_t folder[MAX_PATH] = {};
+                    if (SHGetPathFromIDListW(pidl, folder)) {
+                        std::string chosen = normalizeWinPath(wideToUtf8(folder));
+                        SetWindowTextW(st->hEditPath, utf8ToWide(chosen).c_str());
+                    }
+                    CoTaskMemFree(pidl);
+                }
+                if (SUCCEEDED(hr)) CoUninitialize();
+                return 0;
+            }
+            if (id == IDC_SETUP_BTN_INSTALL) {
+                wchar_t buf[MAX_PATH * 2] = {};
+                GetWindowTextW(st->hEditPath, buf, MAX_PATH * 2);
+                std::string chosen = trimString(wideToUtf8(buf));
+                if (chosen.empty()) {
+                    MessageBoxW(hwnd, L"Please enter a valid installation folder.", L"GameCheck Setup", MB_OK | MB_ICONWARNING);
+                    return 0;
+                }
+                st->targetDir = normalizeWinPath(chosen);
+                st->accepted = true;
+                st->done = true;
+                DestroyWindow(hwnd);
+                return 0;
+            }
+            if (id == IDC_SETUP_BTN_CANCEL) {
+                st->accepted = false;
+                st->done = true;
+                DestroyWindow(hwnd);
+                return 0;
+            }
+            break;
+        }
+        case WM_CLOSE:
+            if (st) {
+                st->accepted = false;
+                st->done = true;
+            }
+            DestroyWindow(hwnd);
+            return 0;
+        case WM_DESTROY:
+            if (st) {
+                if (st->hBgBrush) DeleteObject(st->hBgBrush);
+                if (st->hEditBrush) DeleteObject(st->hEditBrush);
+                if (st->hFontTitle) DeleteObject(st->hFontTitle);
+                if (st->hFontUi) DeleteObject(st->hFontUi);
+                if (st->hFontBold) DeleteObject(st->hFontBold);
+                st->done = true;
+            }
+            PostQuitMessage(0);
+            return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+static bool showInstallSetupDialog(std::string& targetDirInOut, const std::string& fullVersion) {
+    SetupDialogState st;
+    st.targetDir = targetDirInOut;
+    st.fullVersion = fullVersion;
+    g_setupDlg = &st;
+
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(wc);
+    wc.lpfnWndProc = SetupDlgWndProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hCursor = LoadCursorW(nullptr, reinterpret_cast<LPCWSTR>(IDC_ARROW));
+    wc.hIcon = LoadIconW(nullptr, reinterpret_cast<LPCWSTR>(IDI_APPLICATION));
+    wc.lpszClassName = L"GameCheckSetupModalDlg";
+    RegisterClassExW(&wc);
+
+    int dlgW = 532;
+    int dlgH = 290;
+    int scrW = GetSystemMetrics(SM_CXSCREEN);
+    int scrH = GetSystemMetrics(SM_CYSCREEN);
+    int posX = (scrW - dlgW) / 2;
+    int posY = (scrH - dlgH) / 2;
+
+    HWND hwnd = CreateWindowExW(
+        WS_EX_DLGMODALFRAME,
+        wc.lpszClassName,
+        L"GameCheck \x2014 Native Setup",
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+        posX, posY, dlgW, dlgH,
+        nullptr, nullptr, wc.hInstance, nullptr
+    );
+    if (!hwnd) {
+        g_setupDlg = nullptr;
+        return false;
+    }
+
+    ShowWindow(hwnd, SW_SHOWNORMAL);
+    UpdateWindow(hwnd);
+
+    MSG msg;
+    while (!st.done && GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        if (!IsDialogMessageW(hwnd, &msg)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+
+    g_setupDlg = nullptr;
+    if (st.accepted) {
+        targetDirInOut = st.targetDir;
+        return true;
+    }
+    return false;
+}
+
 int main(int argc, char* argv[]) {
     std::string calver = RIGCHECK_CALVER;
     std::string fullVersion = RIGCHECK_FULL_VERSION;
     std::string sourceWorkspace = detectRuntimeWorkspace();
-
-    std::string localAppData = getEnvVar("LOCALAPPDATA");
-    if (localAppData.empty()) {
-        localAppData = getEnvVar("USERPROFILE") + "\\AppData\\Local";
-    }
-    std::string defaultInstallDir = localAppData + "\\Programs\\GameCheck";
+    std::string defaultInstallDir = getDefaultProgramFilesInstallDir();
 
     std::string selfExePath = getSelfExePath();
     std::string selfExeDir = getParentDir(selfExePath);
@@ -490,6 +769,29 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        if (!isRunningAsAdmin() && !targetDir.empty() &&
+            (isProtectedSystemPath(targetDir) || !canWriteToDir(targetDir))) {
+            wchar_t selfPathBuf[MAX_PATH] = {};
+            GetModuleFileNameW(nullptr, selfPathBuf, MAX_PATH);
+            std::wstring params = L"--uninstall --silent --install-dir=\"" + utf8ToWide(targetDir) + L"\"";
+            if (skipRegistryAndShortcuts) params += L" --no-shortcuts";
+            bool ok = runElevatedProcess(selfPathBuf, params, true);
+            if (!ok) {
+                std::cout << "{\"status\":\"CANCELLED\",\"reason\":\"UAC elevation declined for uninstall\"}" << std::endl;
+                return 1;
+            }
+            if (!silentMode) {
+                MessageBoxW(
+                    nullptr,
+                    L"GameCheck has been completely uninstalled from your computer.",
+                    L"GameCheck — Uninstall Complete",
+                    MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND
+                );
+            }
+            std::cout << "{\"status\":\"UNINSTALLED\",\"installDir\":\"" << jsonEscape(targetDir) << "\"}" << std::endl;
+            return 0;
+        }
+
         if (!skipRegistryAndShortcuts) {
             std::string userProfile = getEnvVar("USERPROFILE");
             if (!userProfile.empty()) {
@@ -542,29 +844,32 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    // Interactive User Permission Prompt (when not running in --silent mode)
+    // Interactive Windows Setup Dialog (when not running in --silent mode)
     if (!silentMode) {
-        std::wstring promptMsg =
-            L"GameCheck Setup (CalVer v" + utf8ToWide(fullVersion) + L")\n\n"
-            L"This native C++ installer will:\n"
-            L"1. Install GameCheck to:\n   " + utf8ToWide(targetDir) + L"\n"
-            L"2. Verify & install required runtime dependencies:\n"
-            L"   - GameCheck.exe Native C++17 GUI\n"
-            L"   - Node.js LTS Runtime & npm\n"
-            L"   - Electron Desktop App Shell\n"
-            L"   - C++17 Native Display Driver Probe (rigcheck-native-probe.exe)\n"
-            L"3. Register Desktop, Start Menu, and Windows Installed Apps entries\n\n"
-            L"Do you grant permission to proceed with installation?";
-
-        int response = MessageBoxW(
-            nullptr,
-            promptMsg.c_str(),
-            L"GameCheck — Native Setup Permission",
-            MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND
-        );
-        if (response != IDYES) {
-            std::cout << "{\"status\":\"CANCELLED\",\"reason\":\"User declined installation permission\"}" << std::endl;
+        if (!showInstallSetupDialog(targetDir, fullVersion)) {
+            std::cout << "{\"status\":\"CANCELLED\",\"reason\":\"User cancelled setup dialog\"}" << std::endl;
             return 1;
+        }
+
+        // If chosen directory requires Administrator privileges and we are not elevated, trigger UAC
+        if (!isRunningAsAdmin() && (isProtectedSystemPath(targetDir) || !canWriteToDir(targetDir))) {
+            wchar_t selfPathBuf[MAX_PATH] = {};
+            GetModuleFileNameW(nullptr, selfPathBuf, MAX_PATH);
+            std::wstring params = L"--install-dir=\"" + utf8ToWide(targetDir) + L"\" --silent";
+            if (skipRegistryAndShortcuts) params += L" --no-shortcuts";
+            if (skipDeps) params += L" --no-deps";
+            bool ok = runElevatedProcess(selfPathBuf, params, true);
+            if (!ok) {
+                std::cout << "{\"status\":\"CANCELLED\",\"reason\":\"UAC elevation declined or failed\"}" << std::endl;
+                return 1;
+            }
+            std::wstring doneMsg = L"GameCheck (CalVer v" + utf8ToWide(fullVersion) +
+                                   L") has been installed successfully to:\n\n" + utf8ToWide(targetDir);
+            MessageBoxW(nullptr, doneMsg.c_str(), L"GameCheck — Setup Complete", MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+            std::cout << "{\"status\":\"INSTALLED\",\"calver\":\"" << jsonEscape(calver)
+                      << "\",\"installerType\":\"win32-native-cpp-exe\",\"elevated\":true,\"installDir\":\""
+                      << jsonEscape(targetDir) << "\"}" << std::endl;
+            return 0;
         }
 
         std::cout << "==============================================================" << std::endl;
@@ -630,17 +935,12 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // 2. Link or install Electron & node_modules in targetDir
+        // 2. Self-contained installation: do NOT create external workspace junctions (mklink /J).
+        //    Only install Electron via npm if GameCheck.exe is missing and npm is available.
         std::string targetNodeModules = targetDir + "\\node_modules";
-        std::string sourceNodeModules = sourceWorkspace + "\\node_modules";
-        if (!dirExists(targetNodeModules) && !sourceWorkspace.empty() && dirExists(sourceNodeModules)) {
-            std::string mklinkCmd = "mklink /J \"" + targetNodeModules + "\" \"" + sourceNodeModules + "\"";
-            runCommandCapture(mklinkCmd, cmdOut);
-        }
-
-        if (!dirExists(targetNodeModules + "\\electron") && deps.npmInstalled) {
+        if (!fileExists(targetDir + "\\bin\\GameCheck.exe") && !dirExists(targetNodeModules + "\\electron") && deps.npmInstalled) {
             if (!silentMode) {
-                std::cout << "[RigCheck Setup] Installing Electron desktop runtime via npm install..." << std::endl;
+                std::cout << "[GameCheck Setup] Installing Electron desktop runtime via npm install..." << std::endl;
             }
             runCommandCapture("npm install --no-audit --no-fund", cmdOut, targetDir);
         }
@@ -657,7 +957,7 @@ int main(int argc, char* argv[]) {
         std::string guiCpp = targetDir + "\\native\\gamecheck_desktop.cpp";
         if (!fileExists(guiExe) && fileExists(guiCpp) && deps.gppInstalled) {
             createDirsRecursive(targetDir + "\\bin");
-            std::string buildGuiCmd = "\"" + deps.gppPath + "\" -O2 -std=c++17 \"" + guiCpp + "\" -o \"" + guiExe + "\" -lgdiplus -luxtheme -lcomctl32 -lcomdlg32 -lshell32 -luser32 -lgdi32 -ladvapi32 -lole32 -luuid -static -s";
+            std::string buildGuiCmd = "\"" + deps.gppPath + "\" -O2 -std=c++17 -mwindows \"" + guiCpp + "\" -o \"" + guiExe + "\" -lgdiplus -luxtheme -lcomctl32 -lcomdlg32 -lshell32 -luser32 -lgdi32 -ladvapi32 -lole32 -luuid -lwinhttp -static -s";
             runCommandCapture(buildGuiCmd, cmdOut, targetDir);
         }
     }
@@ -721,6 +1021,12 @@ int main(int argc, char* argv[]) {
                 "Uninstall GameCheck"
             );
         }
+    }
+
+    if (!silentMode) {
+        std::wstring doneMsg = L"GameCheck (CalVer v" + utf8ToWide(fullVersion) +
+                               L") has been installed successfully to:\n\n" + utf8ToWide(targetDir);
+        MessageBoxW(nullptr, doneMsg.c_str(), L"GameCheck — Setup Complete", MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
     }
 
     std::cout << "{\"status\":\"INSTALLED\""

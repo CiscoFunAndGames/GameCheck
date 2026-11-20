@@ -26,6 +26,7 @@ using std::max;
 #include <tlhelp32.h>
 #include <unordered_map>
 #include <cmath>
+#include <thread>
 #endif
 
 #include "gamecheck_core.hpp"
@@ -90,6 +91,7 @@ enum ControlId {
     IDC_DLG_PASTE_CLIP   = 2004,
     IDC_DLG_OPEN_BROWSER = 2005,
     IDC_DLG_SEARCH_DEALS = 2006,
+    IDC_DLG_CHECK_UPDATES = 2007,
     IDC_DLG_PICK_1       = 2010,
     IDC_DLG_PICK_2       = 2011,
     IDC_DLG_PICK_3       = 2012,
@@ -178,10 +180,54 @@ struct AppState {
     std::unordered_map<HWND, float> btnHoverCurrent;
     std::unordered_map<HWND, float> btnHoverTarget;
     std::unordered_map<HWND, bool> btnHoverTracked;
+
+    // Auto-Updater State
+    static constexpr UINT WM_APP_UPDATE_RESULT = WM_APP + 10;
+    GameCheck::UpdateCheckResult updateState;
+    bool updateCheckInProgress = false;
+    std::wstring updatePillText = L"Checking updates...";
+    Color updatePillColor = CyberPalette::TextMuted;
+    HWND hwndUpdatesDlgLabel = nullptr;
 };
 
 static AppState g_app;
 static WNDPROC g_origCyberBtnProc = nullptr;
+
+static std::string getAppRootDir() {
+    wchar_t exeBuf[MAX_PATH] = {};
+    DWORD len = GetModuleFileNameW(nullptr, exeBuf, MAX_PATH);
+    if (len == 0 || len >= MAX_PATH) return ".";
+    std::filesystem::path exePath(exeBuf);
+    std::filesystem::path exeDir = exePath.parent_path();
+    std::string dirName = exeDir.filename().string();
+    for (char& c : dirName) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    if (dirName == "bin" && exeDir.has_parent_path()) {
+        return exeDir.parent_path().string();
+    }
+    return exeDir.string();
+}
+
+static void startAsyncUpdateCheck(HWND hwndNotify, bool autoApply) {
+    if (!hwndNotify || !IsWindow(hwndNotify)) return;
+    g_app.updateCheckInProgress = true;
+    g_app.updatePillText = g_app.isSpanish ? L"Buscando..." : L"Checking...";
+    g_app.updatePillColor = CyberPalette::TextMuted;
+    InvalidateRect(hwndNotify, nullptr, FALSE);
+
+    std::string appDir = getAppRootDir();
+    std::thread([hwndNotify, autoApply, appDir]() {
+        GameCheck::UpdateCheckResult res = GameCheck::checkForAppUpdates(GameCheck::FULL_VERSION, appDir);
+        if (autoApply && res.updateAvailable) {
+            GameCheck::applyAutoUpdate(res, appDir);
+        }
+        if (IsWindow(hwndNotify)) {
+            PostMessageW(hwndNotify, AppState::WM_APP_UPDATE_RESULT, 0,
+                         reinterpret_cast<LPARAM>(new GameCheck::UpdateCheckResult(res)));
+        }
+    }).detach();
+}
 
 static Color lerpColor(Color a, Color b, float t) {
     t = std::clamp(t, 0.0f, 1.0f);
@@ -740,9 +786,9 @@ static void layoutChildControls(HWND hwnd) {
     int topBarH = 136;
     int margin = 14;
 
-    // Language selector next to Read-Only pill in header
+    // Language selector next to update pill in header
     if (g_app.hwndLang) {
-        MoveWindow(g_app.hwndLang, 404, 9, 114, 120, TRUE);
+        MoveWindow(g_app.hwndLang, 452, 9, 94, 120, TRUE);
     }
 
     // Top-right action buttons (6 clear, friendly buttons)
@@ -1064,15 +1110,21 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
     g.DrawString(L"GameCheck", -1, &fontTitle, PointF(14.0f, 8.0f), &yellowBrush);
 
     // Version Pill
-    RectF verRect(128.0f, 11.0f, 104.0f, 22.0f);
+    RectF verRect(120.0f, 11.0f, 96.0f, 22.0f);
     DrawCyberPanel(g, verRect, Color(255, 24, 22, 8), CyberPalette::CyberYellow, CyberPalette::CyberYellow, 5.0f, false);
     std::wstring wVer = L"v" + GameCheck::utf8ToWide(GameCheck::FULL_VERSION);
     g.DrawString(wVer.c_str(), -1, &fontPill, verRect, &centerFmt, &yellowBrush);
 
     // Status Pill
-    RectF safeRect(240.0f, 11.0f, 156.0f, 22.0f);
+    RectF safeRect(222.0f, 11.0f, 116.0f, 22.0f);
     DrawCyberPanel(g, safeRect, Color(255, 8, 22, 28), CyberPalette::NeuralCyan, CyberPalette::NeuralCyan, 5.0f, false);
-    g.DrawString(tr(L"Read-Only \x2022 Non-Invasive", L"Solo Lectura \x2022 Seguro"), -1, &fontPill, safeRect, &centerFmt, &cyanBrush);
+    g.DrawString(tr(L"Read-Only \x2022 Safe", L"Solo Lectura \x2022 Seguro"), -1, &fontPill, safeRect, &centerFmt, &cyanBrush);
+
+    // Live Auto-Update Status Pill
+    RectF updRect(344.0f, 11.0f, 102.0f, 22.0f);
+    DrawCyberPanel(g, updRect, Color(255, 12, 20, 18), g_app.updatePillColor, g_app.updatePillColor, 5.0f, false);
+    SolidBrush updBrush(g_app.updatePillColor);
+    g.DrawString(g_app.updatePillText.c_str(), -1, &fontPill, updRect, &centerFmt, &updBrush);
 
     // 4 Hardware Cards
     int cardY = 46;
@@ -2332,20 +2384,43 @@ static void showSteamParserDialog(HWND parent) {
 // =============================================================================
 // 4. UPDATES & PATCH INFO DIALOG
 // =============================================================================
+static std::wstring buildUpdatesInfoText() {
+    std::wstring updLine = L"Update Status: ";
+    if (g_app.updateCheckInProgress) {
+        updLine += L"Checking GitHub Releases & local patches...";
+    } else if (!g_app.updateState.checked) {
+        updLine += L"Not checked yet";
+    } else if (g_app.updateState.applied) {
+        updLine += L"Updated to v" + GameCheck::utf8ToWide(g_app.updateState.latestVersion) +
+                   (g_app.updateState.restartRequired ? L" (Relaunching...)" : L"");
+    } else if (g_app.updateState.updateAvailable) {
+        updLine += L"Available: v" + GameCheck::utf8ToWide(g_app.updateState.latestVersion) +
+                   L" (" + GameCheck::utf8ToWide(g_app.updateState.source) + L")";
+    } else if (!g_app.updateState.errorMessage.empty()) {
+        updLine += GameCheck::utf8ToWide(g_app.updateState.errorMessage);
+    } else {
+        updLine += L"Up to date (v" + GameCheck::utf8ToWide(GameCheck::FULL_VERSION) + L")";
+    }
+
+    return L"Version: v" + GameCheck::utf8ToWide(GameCheck::FULL_VERSION) + L"\r\n" +
+           updLine + L"\r\n" +
+           L"Mode: 100% Read-Only \x2022 Non-Invasive \x2022 Anti-Cheat Safe \x2022 0% Idle CPU\r\n" +
+           L"Hardware Scan Speed: " + std::to_wstring(static_cast<int>(g_app.detectedSpecs.scanDurationMs)) + L" ms\r\n" +
+           L"Built-in Game Catalog: " + std::to_wstring(GameCheck::getCatalogGames().size()) + L" Titles + Installed Steam/Epic/Xbox Detection\r\n\r\n" +
+           L"Auto-checks GitHub Releases & local .rigpatch.json bundles on startup.";
+}
+
 static LRESULT CALLBACK UpdatesDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_CREATE: {
-            std::wstring info =
-                L"Version: v" + GameCheck::utf8ToWide(GameCheck::FULL_VERSION) + L"\r\n"
-                L"Mode: 100% Read-Only \x2022 Non-Invasive \x2022 Anti-Cheat Safe \x2022 0% Idle CPU\r\n"
-                L"Hardware Scan Speed: " + std::to_wstring(static_cast<int>(g_app.detectedSpecs.scanDurationMs)) + L" ms\r\n"
-                L"Built-in Game Catalog: " + std::to_wstring(GameCheck::getCatalogGames().size()) + L" Titles + Installed Steam/Epic/Xbox Detection\r\n\r\n"
-                L"You can verify and apply a signed .rigpatch.json live update file below.";
-            HWND lbl = makeDlgLabel(hwnd, info.c_str(), 18, 54, 480, 120);
+            std::wstring info = buildUpdatesInfoText();
+            HWND lbl = makeDlgLabel(hwnd, info.c_str(), 18, 52, 540, 146);
             SendMessageW(lbl, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.hFontUi), TRUE);
+            g_app.hwndUpdatesDlgLabel = lbl;
 
-            makeDlgButton(hwnd, tr(L"Apply Patch File (.rigpatch.json)...", L"Aplicar Parche (.rigpatch.json)..."), 18, 190, 260, 34, IDC_DLG_OK);
-            makeDlgButton(hwnd, tr(L"Close", L"Cerrar"), 388, 190, 110, 34, IDC_DLG_CANCEL);
+            makeDlgButton(hwnd, tr(L"Check & Apply Updates Now", L"Buscar y Aplicar Actualizaciones"), 18, 210, 224, 34, IDC_DLG_CHECK_UPDATES);
+            makeDlgButton(hwnd, tr(L"Apply Patch File...", L"Aplicar Parche..."), 250, 210, 178, 34, IDC_DLG_OK);
+            makeDlgButton(hwnd, tr(L"Close", L"Cerrar"), 436, 210, 122, 34, IDC_DLG_CANCEL);
             return 0;
         }
         case WM_DRAWITEM:
@@ -2360,6 +2435,13 @@ static LRESULT CALLBACK UpdatesDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             return handleDarkDlgColors(msg, wParam);
         case WM_COMMAND: {
             int id = LOWORD(wParam);
+            if (id == IDC_DLG_CHECK_UPDATES) {
+                startAsyncUpdateCheck(g_app.hwndMain, true);
+                if (g_app.hwndUpdatesDlgLabel && IsWindow(g_app.hwndUpdatesDlgLabel)) {
+                    SetWindowTextW(g_app.hwndUpdatesDlgLabel, buildUpdatesInfoText().c_str());
+                }
+                return 0;
+            }
             if (id == IDC_DLG_OK) {
                 wchar_t fileBuf[MAX_PATH] = {};
                 OPENFILENAMEW ofn = {};
@@ -2370,19 +2452,36 @@ static LRESULT CALLBACK UpdatesDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 ofn.nMaxFile = MAX_PATH;
                 ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
                 if (GetOpenFileNameW(&ofn)) {
-                    std::wstring okMsg = L"Verified patch bundle:\n" + std::wstring(fileBuf) +
-                                         L"\n\nRun `node scripts/create-patch.js --apply` or the installer to commit live files.";
-                    MessageBoxW(hwnd, okMsg.c_str(), L"GameCheck — Patch Verified", MB_OK | MB_ICONINFORMATION);
+                    GameCheck::UpdateCheckResult manualRes;
+                    manualRes.updateAvailable = true;
+                    manualRes.isLocalPatch = true;
+                    manualRes.currentVersion = GameCheck::FULL_VERSION;
+                    manualRes.localPatchPath = GameCheck::wideToUtf8(fileBuf);
+                    if (GameCheck::applyAutoUpdate(manualRes, getAppRootDir())) {
+                        g_app.updateState = manualRes;
+                        g_app.updatePillText = L"Updated!";
+                        g_app.updatePillColor = CyberPalette::AcidGreen;
+                        InvalidateRect(g_app.hwndMain, nullptr, FALSE);
+                        if (g_app.hwndUpdatesDlgLabel && IsWindow(g_app.hwndUpdatesDlgLabel)) {
+                            SetWindowTextW(g_app.hwndUpdatesDlgLabel, buildUpdatesInfoText().c_str());
+                        }
+                        MessageBoxW(hwnd, L"Verified and applied SHA-256 patch bundle successfully.", L"GameCheck — Patch Applied", MB_OK | MB_ICONINFORMATION);
+                    } else {
+                        std::wstring errMsg = L"Patch verification failed:\n" + GameCheck::utf8ToWide(manualRes.errorMessage);
+                        MessageBoxW(hwnd, errMsg.c_str(), L"GameCheck — Patch Error", MB_OK | MB_ICONERROR);
+                    }
                 }
                 return 0;
             }
             if (id == IDC_DLG_CANCEL) {
+                g_app.hwndUpdatesDlgLabel = nullptr;
                 DestroyWindow(hwnd);
                 return 0;
             }
             break;
         }
         case WM_CLOSE:
+            g_app.hwndUpdatesDlgLabel = nullptr;
             DestroyWindow(hwnd);
             return 0;
     }
@@ -2401,7 +2500,7 @@ static void showUpdatesDialog(HWND parent) {
     HWND dlg = CreateWindowExW(
         WS_EX_DLGMODALFRAME, wc.lpszClassName, L"GameCheck — Updates & Info",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
-        0, 0, 532, 276, parent, nullptr, wc.hInstance, nullptr
+        0, 0, 584, 298, parent, nullptr, wc.hInstance, nullptr
     );
     centerWindowToParent(dlg, parent);
     runModalLoop(parent, dlg);
@@ -2740,6 +2839,34 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             break;
         }
 
+        case AppState::WM_APP_UPDATE_RESULT: {
+            auto* res = reinterpret_cast<GameCheck::UpdateCheckResult*>(lParam);
+            if (res) {
+                g_app.updateState = *res;
+                g_app.updateCheckInProgress = false;
+                if (res->applied) {
+                    g_app.updatePillText = L"Updated v" + GameCheck::utf8ToWide(res->latestVersion);
+                    g_app.updatePillColor = CyberPalette::AcidGreen;
+                } else if (res->updateAvailable) {
+                    g_app.updatePillText = L"Update v" + GameCheck::utf8ToWide(res->latestVersion);
+                    g_app.updatePillColor = CyberPalette::CyberYellow;
+                } else {
+                    g_app.updatePillText = g_app.isSpanish ? L"Al d\x00EDa" : L"Up to date";
+                    g_app.updatePillColor = CyberPalette::AcidGreen;
+                }
+                if (g_app.hwndUpdatesDlgLabel && IsWindow(g_app.hwndUpdatesDlgLabel)) {
+                    SetWindowTextW(g_app.hwndUpdatesDlgLabel, buildUpdatesInfoText().c_str());
+                }
+                InvalidateRect(hwnd, nullptr, FALSE);
+                if (res->applied && res->restartRequired) {
+                    std::wstring msg = L"GameCheck is updating to v" + GameCheck::utf8ToWide(res->latestVersion) +
+                                       L" in the background. Please relaunch after setup finishes.";
+                    MessageBoxW(hwnd, msg.c_str(), L"GameCheck — Auto-Update", MB_OK | MB_ICONINFORMATION);
+                }
+                delete res;
+            }
+            return 0;
+        }
         case WM_TIMER: {
             if (wParam == AppState::TIMER_UI_ANIM) {
                 bool needCanvasRedraw = false;
@@ -2878,6 +3005,7 @@ static int runWin32DesktopGui() {
 
     ShowWindow(hwnd, SW_SHOWNORMAL);
     UpdateWindow(hwnd);
+    startAsyncUpdateCheck(hwnd, true);
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

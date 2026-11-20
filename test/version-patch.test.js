@@ -189,7 +189,8 @@ function runVersionPatchTests() {
   assert.ok(linuxShContent.includes('--check-deps'), 'Linux installer must support --check-deps');
   assert.ok(linuxShContent.includes('Grant permission to install missing system dependencies via sudo'), 'Linux installer must ask for sudo permission');
   assert.ok(linuxShContent.includes('rigcheck_probe.cpp'), 'Linux installer must compile native C++17 probe');
-  assert.ok(linuxShContent.includes('.local/share/gamecheck'), 'Linux installer must target ~/.local/share/gamecheck');
+  assert.ok(linuxShContent.includes('.local/share/GameChecker'), 'Linux installer must target ~/.local/share/GameChecker');
+  assert.ok(linuxShContent.includes('/opt/GameChecker'), 'Linux installer must offer /opt/GameChecker system option');
   assert.ok(linuxShContent.includes('gamecheck-uninstall'), 'Linux installer must create gamecheck-uninstall command');
   assert.ok(linuxShContent.includes('gamecheck.desktop'), 'Linux installer must create gamecheck.desktop');
   assert.ok(linuxShContent.includes('gamecheck-uninstall.desktop'), 'Linux installer must create gamecheck-uninstall.desktop');
@@ -235,6 +236,8 @@ function runVersionPatchTests() {
       assert.ok(fs.existsSync(path.join(tmpInstallDir, 'public', 'index.html')));
       assert.ok(fs.existsSync(path.join(tmpInstallDir, 'bin', 'rigcheck-native-probe.exe')));
       assert.ok(fs.existsSync(path.join(tmpInstallDir, 'bin', 'GameCheck.exe')));
+      assert.ok(fs.existsSync(path.join(tmpInstallDir, 'GameCheck-Desktop.bat')));
+      assert.strictEqual(fs.existsSync(path.join(tmpInstallDir, 'node_modules')), false, 'Self-contained install must not create external node_modules junction');
 
       const uninstallerExe = path.join(tmpInstallDir, 'Uninstall-GameCheck.exe');
       assert.ok(fs.existsSync(uninstallerExe), 'Uninstall-GameCheck.exe must be created in installDir');

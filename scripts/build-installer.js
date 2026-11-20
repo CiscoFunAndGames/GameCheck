@@ -99,7 +99,7 @@ set -e
 
 CALVER="${calver}"
 FULL_VERSION="${fullVersion}"
-INSTALL_DIR="\${HOME}/.local/share/gamecheck"
+INSTALL_DIR="\${HOME}/.local/share/GameChecker"
 BIN_DIR="\${HOME}/.local/bin"
 APPS_DIR="\${HOME}/.local/share/applications"
 VERIFY_ONLY=0
@@ -186,6 +186,13 @@ if [ "$SILENT_MODE" -eq 0 ]; then
   echo "=============================================================="
   echo "   GameCheck Linux Installer — CalVer v\${FULL_VERSION}"
   echo "=============================================================="
+  echo "Tip: Enter /opt/GameChecker for a system-wide installation (uses sudo)."
+  if [ -t 0 ]; then
+    read -r -p "Choose install directory [\${HOME}/.local/share/GameChecker]: " USER_DIR
+    if [ -n "\${USER_DIR}" ]; then
+      INSTALL_DIR="\${USER_DIR}"
+    fi
+  fi
   echo "Target directory : \${INSTALL_DIR}"
   echo "Launcher command : \${BIN_DIR}/gamecheck"
   echo "Uninstaller cmd  : \${BIN_DIR}/gamecheck-uninstall"
@@ -199,6 +206,15 @@ if [ "$SILENT_MODE" -eq 0 ]; then
         ;;
     esac
   fi
+fi
+
+DIR_SUDO=""
+CHECK_PATH="\${INSTALL_DIR}"
+while [ ! -e "\${CHECK_PATH}" ] && [ "\${CHECK_PATH}" != "/" ]; do
+  CHECK_PATH="\$(dirname "\${CHECK_PATH}")"
+done
+if [ ! -w "\${CHECK_PATH}" ] && [ "\$(id -u)" -ne 0 ]; then
+  DIR_SUDO="sudo"
 fi
 
 # 1. Check and install missing Linux system dependencies
@@ -242,32 +258,33 @@ if [ "$SKIP_DEPS" -eq 0 ]; then
   fi
 fi
 
-mkdir -p "\${INSTALL_DIR}" "\${BIN_DIR}" "\${APPS_DIR}"
+\$DIR_SUDO mkdir -p "\${INSTALL_DIR}"
+mkdir -p "\${BIN_DIR}" "\${APPS_DIR}"
 
-PAYLOAD_ZIP="\${INSTALL_DIR}/_payload.zip"
+PAYLOAD_ZIP="/tmp/gamecheck_payload_\$\$.zip"
 base64 -d << 'EOF_RIGCHECK_PAYLOAD' > "\${PAYLOAD_ZIP}"
 ${payloadZipBase64}
 EOF_RIGCHECK_PAYLOAD
 
 if command -v unzip >/dev/null 2>&1; then
-  unzip -o -q "\${PAYLOAD_ZIP}" -d "\${INSTALL_DIR}"
+  \$DIR_SUDO unzip -o -q "\${PAYLOAD_ZIP}" -d "\${INSTALL_DIR}"
 elif command -v python3 >/dev/null 2>&1; then
-  python3 -m zipfile -e "\${PAYLOAD_ZIP}" "\${INSTALL_DIR}"
+  \$DIR_SUDO python3 -m zipfile -e "\${PAYLOAD_ZIP}" "\${INSTALL_DIR}"
 fi
 rm -f "\${PAYLOAD_ZIP}"
-chmod +x "\${INSTALL_DIR}/gamecheck-desktop.sh" "\${INSTALL_DIR}/rigcheck-desktop.sh" 2>/dev/null || true
+\$DIR_SUDO chmod +x "\${INSTALL_DIR}/gamecheck-desktop.sh" "\${INSTALL_DIR}/rigcheck-desktop.sh" 2>/dev/null || true
 
 # 2. Compile C++17 Native Display Driver Probe for Linux if g++ is present
 if command -v g++ >/dev/null 2>&1 && [ -f "\${INSTALL_DIR}/native/rigcheck_probe.cpp" ]; then
-  mkdir -p "\${INSTALL_DIR}/bin"
-  g++ -O2 -std=c++17 "\${INSTALL_DIR}/native/rigcheck_probe.cpp" -o "\${INSTALL_DIR}/bin/rigcheck-native-probe" 2>/dev/null || true
-  chmod +x "\${INSTALL_DIR}/bin/rigcheck-native-probe" 2>/dev/null || true
+  \$DIR_SUDO mkdir -p "\${INSTALL_DIR}/bin"
+  \$DIR_SUDO g++ -O2 -std=c++17 "\${INSTALL_DIR}/native/rigcheck_probe.cpp" -o "\${INSTALL_DIR}/bin/rigcheck-native-probe" 2>/dev/null || true
+  \$DIR_SUDO chmod +x "\${INSTALL_DIR}/bin/rigcheck-native-probe" 2>/dev/null || true
 fi
 
 # 3. Install Electron runtime via npm if not yet present in node_modules
 if [ "$SKIP_DEPS" -eq 0 ] && [ ! -d "\${INSTALL_DIR}/node_modules/electron" ] && command -v npm >/dev/null 2>&1; then
   echo "[GameCheck Setup] Installing Electron desktop runtime via npm install..."
-  (cd "\${INSTALL_DIR}" && npm install --no-audit --no-fund) || true
+  (cd "\${INSTALL_DIR}" && \$DIR_SUDO npm install --no-audit --no-fund) || true
 fi
 
 cat << EOF_LAUNCHER > "\${BIN_DIR}/gamecheck"
@@ -409,6 +426,7 @@ function buildInstallers() {
         '-ladvapi32',
         '-lole32',
         '-luuid',
+        '-lwinhttp',
         '-static',
         '-s'
       ],
@@ -475,6 +493,7 @@ function buildInstallers() {
         '-o',
         `dist/${gameCheckExeName}`,
         '-luser32',
+        '-lgdi32',
         '-lshell32',
         '-ladvapi32',
         '-lole32',
