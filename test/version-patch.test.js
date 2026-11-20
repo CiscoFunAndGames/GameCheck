@@ -178,24 +178,30 @@ function runVersionPatchTests() {
 
   const liveVer = getVersionInfo(ROOT_DIR);
   const installerArtifacts = getInstallerArtifacts(path.join(ROOT_DIR, 'dist'));
-  assert.ok(installerArtifacts.some((a) => a.fileName === `rigcheck-installer-${liveVer.calver}.sh`), 'Linux installer .sh should exist in dist/');
-  assert.ok(installerArtifacts.some((a) => a.fileName === `RigCheck-App-Payload-${liveVer.calver}.zip`), 'Payload .zip should exist in dist/');
+  assert.ok(installerArtifacts.some((a) => a.fileName === `gamecheck-installer-${liveVer.calver}.sh`), 'Linux installer .sh should exist in dist/');
+  assert.ok(installerArtifacts.some((a) => a.fileName === `rigcheck-installer-${liveVer.calver}.sh`), 'Legacy Linux installer .sh should exist in dist/');
+  assert.ok(installerArtifacts.some((a) => a.fileName === `GameCheck-App-Payload-${liveVer.calver}.zip`), 'GameCheck payload .zip should exist in dist/');
   assert.ok(fs.existsSync(path.join(ROOT_DIR, 'dist', 'SHA256SUMS.txt')), 'SHA256SUMS.txt should exist in dist/');
   assert.ok(fs.existsSync(path.join(ROOT_DIR, 'dist', 'release-manifest.json')), 'release-manifest.json should exist in dist/');
 
-  // Verify Linux installer script content for permissions & dependency installation
-  const linuxShContent = fs.readFileSync(path.join(ROOT_DIR, 'dist', `rigcheck-installer-${liveVer.calver}.sh`), 'utf8');
+  // Verify Linux installer script content for permissions, dependency installation, and uninstaller
+  const linuxShContent = fs.readFileSync(path.join(ROOT_DIR, 'dist', `gamecheck-installer-${liveVer.calver}.sh`), 'utf8');
   assert.ok(linuxShContent.includes('--check-deps'), 'Linux installer must support --check-deps');
   assert.ok(linuxShContent.includes('Grant permission to install missing system dependencies via sudo'), 'Linux installer must ask for sudo permission');
   assert.ok(linuxShContent.includes('rigcheck_probe.cpp'), 'Linux installer must compile native C++17 probe');
+  assert.ok(linuxShContent.includes('.local/share/gamecheck'), 'Linux installer must target ~/.local/share/gamecheck');
+  assert.ok(linuxShContent.includes('gamecheck-uninstall'), 'Linux installer must create gamecheck-uninstall command');
+  assert.ok(linuxShContent.includes('gamecheck.desktop'), 'Linux installer must create gamecheck.desktop');
+  assert.ok(linuxShContent.includes('gamecheck-uninstall.desktop'), 'Linux installer must create gamecheck-uninstall.desktop');
 
   if (process.platform === 'win32') {
-    const exePath = path.join(ROOT_DIR, 'dist', `RigCheck-Optimizer-Setup-${liveVer.calver}.exe`);
+    const exePath = path.join(ROOT_DIR, 'dist', `GameCheck-Setup-${liveVer.calver}.exe`);
     assert.ok(fs.existsSync(exePath), 'Windows native C++ .exe installer must exist in dist/');
 
     const verifyOut = execFileSync(exePath, ['--verify'], { encoding: 'utf8', timeout: 8000 });
     const verifyJson = JSON.parse(verifyOut.trim());
     assert.strictEqual(verifyJson.status, 'INSTALLER_OK');
+    assert.strictEqual(verifyJson.appName, 'GameCheck');
     assert.strictEqual(verifyJson.calver, liveVer.calver);
     assert.strictEqual(verifyJson.installerType, 'win32-native-cpp-exe');
     assert.ok(Array.isArray(verifyJson.dependenciesManaged) && verifyJson.dependenciesManaged.includes('Electron'));
@@ -205,12 +211,13 @@ function runVersionPatchTests() {
     const depsJson = JSON.parse(depsOut.trim());
     assert.strictEqual(depsJson.status, 'DEPS_CHECK');
     assert.strictEqual(depsJson.platform, 'win32');
+    assert.strictEqual(depsJson.dependencies.gameCheckExe.installed, true);
     assert.strictEqual(depsJson.dependencies.node.installed, true);
     assert.strictEqual(depsJson.dependencies.electron.installed, true);
     assert.strictEqual(depsJson.dependencies.nativeProbe.installed, true);
 
-    // Also test real silent extraction + dependency verification of the C++ .exe installer into a temporary folder
-    const tmpInstallDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rigcheck-exe-install-'));
+    // Also test real silent extraction + self-contained Uninstall-GameCheck.exe in a temporary folder
+    const tmpInstallDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gamecheck-exe-install-'));
     try {
       const installOut = execFileSync(
         exePath,
@@ -227,12 +234,52 @@ function runVersionPatchTests() {
       assert.ok(fs.existsSync(path.join(tmpInstallDir, 'src', 'main.js')));
       assert.ok(fs.existsSync(path.join(tmpInstallDir, 'public', 'index.html')));
       assert.ok(fs.existsSync(path.join(tmpInstallDir, 'bin', 'rigcheck-native-probe.exe')));
-      assert.ok(fs.existsSync(path.join(tmpInstallDir, 'Uninstall-RigCheck.cmd')));
+      assert.ok(fs.existsSync(path.join(tmpInstallDir, 'bin', 'GameCheck.exe')));
+
+      const uninstallerExe = path.join(tmpInstallDir, 'Uninstall-GameCheck.exe');
+      assert.ok(fs.existsSync(uninstallerExe), 'Uninstall-GameCheck.exe must be created in installDir');
+
+      // Test silent self-uninstall via Uninstall-GameCheck.exe (auto-detects uninstall mode from filename)
+      const uninstallOut = execFileSync(
+        uninstallerExe,
+        ['--silent', '--no-shortcuts'],
+        { encoding: 'utf8', timeout: 10000 }
+      );
+      const uninstallJson = JSON.parse(uninstallOut.trim().split(/\r?\n/).pop());
+      assert.strictEqual(uninstallJson.status, 'UNINSTALLED');
+
+      // Wait briefly for detached cmd.exe self-delete to remove tmpInstallDir
+      const deadline = Date.now() + 6000;
+      while (fs.existsSync(tmpInstallDir) && Date.now() < deadline) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
+      }
+      assert.strictEqual(fs.existsSync(tmpInstallDir), false, 'Uninstall-GameCheck.exe must remove the entire install folder');
     } finally {
-      fs.rmSync(tmpInstallDir, { recursive: true, force: true });
+      if (fs.existsSync(tmpInstallDir)) {
+        fs.rmSync(tmpInstallDir, { recursive: true, force: true });
+      }
     }
 
-    console.log('  [PASS] Windows Native C++ Installer (RigCheck-Optimizer-Setup-2026.11.17.exe --verify, --check-deps & silent install)');
+    // Also test --uninstall --silent --install-dir=... from Setup.exe directly
+    const tmpInstallDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'gamecheck-exe-uninstall-'));
+    try {
+      execFileSync(exePath, [`--install-dir=${tmpInstallDir2}`, '--silent', '--no-shortcuts'], { encoding: 'utf8', timeout: 15000 });
+      assert.ok(fs.existsSync(path.join(tmpInstallDir2, 'Uninstall-GameCheck.exe')));
+      const uninstallOut2 = execFileSync(
+        exePath,
+        ['--uninstall', '--silent', '--no-shortcuts', `--install-dir=${tmpInstallDir2}`],
+        { encoding: 'utf8', timeout: 10000 }
+      );
+      const uninstallJson2 = JSON.parse(uninstallOut2.trim().split(/\r?\n/).pop());
+      assert.strictEqual(uninstallJson2.status, 'UNINSTALLED');
+      assert.strictEqual(fs.existsSync(tmpInstallDir2), false, '--uninstall --silent must remove the install folder');
+    } finally {
+      if (fs.existsSync(tmpInstallDir2)) {
+        fs.rmSync(tmpInstallDir2, { recursive: true, force: true });
+      }
+    }
+
+    console.log(`  [PASS] Windows Native C++ Installer & Uninstaller (GameCheck-Setup-${liveVer.calver}.exe --verify, --check-deps, silent install & Uninstall-GameCheck.exe)`);
   }
 
   console.log('--- All CalVer, Patch & Installer Tests Passed! ---\n');

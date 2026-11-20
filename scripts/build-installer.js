@@ -90,7 +90,7 @@ function generateWindowsManifestXml(fullVersion) {
 function generateLinuxInstallerScript(calver, fullVersion, payloadZipBase64) {
   return `#!/usr/bin/env bash
 # ==============================================================================
-# RigCheck Optimizer — Native Self-Contained Linux Installer (CalVer v${fullVersion})
+# GameCheck — Native Self-Contained Linux Installer & Uninstaller (CalVer v${fullVersion})
 # Prompts for user / sudo permissions, checks & installs missing Linux packages
 # (nodejs, npm, g++, pciutils, mesa-utils, x11-xserver-utils, unzip), compiles
 # the C++17 native probe (rigcheck_probe.cpp), and ensures Electron is installed.
@@ -99,7 +99,7 @@ set -e
 
 CALVER="${calver}"
 FULL_VERSION="${fullVersion}"
-INSTALL_DIR="\${HOME}/.local/share/rigcheck-optimizer"
+INSTALL_DIR="\${HOME}/.local/share/gamecheck"
 BIN_DIR="\${HOME}/.local/bin"
 APPS_DIR="\${HOME}/.local/share/applications"
 VERIFY_ONLY=0
@@ -132,7 +132,7 @@ for arg in "$@"; do
 done
 
 if [ "$VERIFY_ONLY" -eq 1 ]; then
-  echo "{\\"status\\":\\"INSTALLER_OK\\",\\"appName\\":\\"RigCheck Optimizer\\",\\"calver\\":\\"\${CALVER}\\",\\"fullVersion\\":\\"\${FULL_VERSION}\\",\\"installerType\\":\\"linux-sh\\",\\"dependenciesManaged\\":[\\"nodejs\\",\\"npm\\",\\"electron\\",\\"g++\\",\\"pciutils\\",\\"mesa-utils\\",\\"x11-xserver-utils\\",\\"unzip\\"]}"
+  echo "{\\"status\\":\\"INSTALLER_OK\\",\\"appName\\":\\"GameCheck\\",\\"calver\\":\\"\${CALVER}\\",\\"fullVersion\\":\\"\${FULL_VERSION}\\",\\"installerType\\":\\"linux-sh\\",\\"dependenciesManaged\\":[\\"nodejs\\",\\"npm\\",\\"electron\\",\\"g++\\",\\"pciutils\\",\\"mesa-utils\\",\\"x11-xserver-utils\\",\\"unzip\\"]}"
   exit 0
 fi
 
@@ -161,22 +161,37 @@ if [ "$CHECK_DEPS_ONLY" -eq 1 ]; then
 fi
 
 if [ "$UNINSTALL" -eq 1 ]; then
+  if [ "$SILENT_MODE" -eq 0 ] && [ -t 0 ]; then
+    read -r -p "Are you sure you want to completely uninstall GameCheck and remove all application files and shortcuts? [y/N] " CONFIRM_UNINSTALL
+    case "\${CONFIRM_UNINSTALL}" in
+      [yY][eE][sS]|[yY]) ;;
+      *)
+        echo "Uninstall cancelled."
+        exit 1
+        ;;
+    esac
+  fi
   rm -rf "\${INSTALL_DIR}"
+  rm -f "\${BIN_DIR}/gamecheck"
+  rm -f "\${BIN_DIR}/gamecheck-uninstall"
+  rm -f "\${APPS_DIR}/gamecheck.desktop"
+  rm -f "\${APPS_DIR}/gamecheck-uninstall.desktop"
   rm -f "\${BIN_DIR}/rigcheck-optimizer"
   rm -f "\${APPS_DIR}/rigcheck-optimizer.desktop"
-  echo "[RigCheck Linux Uninstaller] Removed RigCheck Optimizer v\${FULL_VERSION}."
+  echo "GameCheck v\${FULL_VERSION} has been completely uninstalled."
   exit 0
 fi
 
 if [ "$SILENT_MODE" -eq 0 ]; then
   echo "=============================================================="
-  echo "   RigCheck Optimizer Linux Installer — CalVer v\${FULL_VERSION}"
+  echo "   GameCheck Linux Installer — CalVer v\${FULL_VERSION}"
   echo "=============================================================="
   echo "Target directory : \${INSTALL_DIR}"
-  echo "Launcher symlink : \${BIN_DIR}/rigcheck-optimizer"
+  echo "Launcher command : \${BIN_DIR}/gamecheck"
+  echo "Uninstaller cmd  : \${BIN_DIR}/gamecheck-uninstall"
   echo ""
   if [ -t 0 ]; then
-    read -r -p "Do you grant permission to install RigCheck Optimizer and verify dependencies? [Y/n] " USER_CONSENT
+    read -r -p "Do you grant permission to install GameCheck and verify dependencies? [Y/n] " USER_CONSENT
     case "\${USER_CONSENT}" in
       [nN][oO]|[nN])
         echo "{\\"status\\":\\"CANCELLED\\",\\"reason\\":\\"User declined installation permission\\"}"
@@ -198,7 +213,7 @@ if [ "$SKIP_DEPS" -eq 0 ]; then
   command -v unzip >/dev/null 2>&1 || MISSING_CMDS+=("unzip")
 
   if [ "\${#MISSING_CMDS[@]}" -gt 0 ]; then
-    echo "[RigCheck Setup] Missing Linux packages detected: \${MISSING_CMDS[*]}"
+    echo "[GameCheck Setup] Missing Linux packages detected: \${MISSING_CMDS[*]}"
     ALLOW_SUDO=1
     if [ "$SILENT_MODE" -eq 0 ] && [ -t 0 ]; then
       read -r -p "Grant permission to install missing system dependencies via sudo? [Y/n] " SUDO_CONSENT
@@ -240,7 +255,7 @@ elif command -v python3 >/dev/null 2>&1; then
   python3 -m zipfile -e "\${PAYLOAD_ZIP}" "\${INSTALL_DIR}"
 fi
 rm -f "\${PAYLOAD_ZIP}"
-chmod +x "\${INSTALL_DIR}/rigcheck-desktop.sh" 2>/dev/null || true
+chmod +x "\${INSTALL_DIR}/gamecheck-desktop.sh" "\${INSTALL_DIR}/rigcheck-desktop.sh" 2>/dev/null || true
 
 # 2. Compile C++17 Native Display Driver Probe for Linux if g++ is present
 if command -v g++ >/dev/null 2>&1 && [ -f "\${INSTALL_DIR}/native/rigcheck_probe.cpp" ]; then
@@ -251,11 +266,11 @@ fi
 
 # 3. Install Electron runtime via npm if not yet present in node_modules
 if [ "$SKIP_DEPS" -eq 0 ] && [ ! -d "\${INSTALL_DIR}/node_modules/electron" ] && command -v npm >/dev/null 2>&1; then
-  echo "[RigCheck Setup] Installing Electron desktop runtime via npm install..."
+  echo "[GameCheck Setup] Installing Electron desktop runtime via npm install..."
   (cd "\${INSTALL_DIR}" && npm install --no-audit --no-fund) || true
 fi
 
-cat << EOF_LAUNCHER > "\${BIN_DIR}/rigcheck-optimizer"
+cat << EOF_LAUNCHER > "\${BIN_DIR}/gamecheck"
 #!/usr/bin/env bash
 cd "\${INSTALL_DIR}"
 if [ -x "./node_modules/.bin/electron" ]; then
@@ -266,29 +281,72 @@ else
   exec node "\${INSTALL_DIR}/src/cli.js" "\\$@"
 fi
 EOF_LAUNCHER
-chmod +x "\${BIN_DIR}/rigcheck-optimizer"
+chmod +x "\${BIN_DIR}/gamecheck"
 
-cat << EOF_UNINSTALL > "\${INSTALL_DIR}/uninstall.sh"
+cat << EOF_UNINSTALL > "\${BIN_DIR}/gamecheck-uninstall"
 #!/usr/bin/env bash
+set -e
+SILENT=0
+for arg in "\\$@"; do
+  case "\\$arg" in
+    --silent|-y|--yes)
+      SILENT=1
+      ;;
+  esac
+done
+
+if [ "\\$SILENT" -eq 0 ]; then
+  read -r -p "Are you sure you want to completely uninstall GameCheck and remove all application files and shortcuts? [y/N] " CONFIRM
+  case "\\$CONFIRM" in
+    [yY][eE][sS]|[yY]) ;;
+    *)
+      echo "Uninstall cancelled."
+      exit 1
+      ;;
+  esac
+fi
+
 rm -rf "\${INSTALL_DIR}"
+rm -f "\${BIN_DIR}/gamecheck"
+rm -f "\${BIN_DIR}/gamecheck-uninstall"
+rm -f "\${APPS_DIR}/gamecheck.desktop"
+rm -f "\${APPS_DIR}/gamecheck-uninstall.desktop"
 rm -f "\${BIN_DIR}/rigcheck-optimizer"
 rm -f "\${APPS_DIR}/rigcheck-optimizer.desktop"
-echo "RigCheck Optimizer uninstalled."
+echo "GameCheck has been completely uninstalled."
 EOF_UNINSTALL
+chmod +x "\${BIN_DIR}/gamecheck-uninstall"
+
+cat << EOF_UNINSTALL_LOCAL > "\${INSTALL_DIR}/uninstall.sh"
+#!/usr/bin/env bash
+exec "\${BIN_DIR}/gamecheck-uninstall" "\\$@"
+EOF_UNINSTALL_LOCAL
 chmod +x "\${INSTALL_DIR}/uninstall.sh"
 
-cat << EOF_DESKTOP > "\${APPS_DIR}/rigcheck-optimizer.desktop"
+cat << EOF_DESKTOP > "\${APPS_DIR}/gamecheck.desktop"
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=RigCheck Optimizer
-Comment=Cross-Platform PC Hardware & Game Configuration Optimizer (CalVer v\${FULL_VERSION})
-Exec=\${BIN_DIR}/rigcheck-optimizer
+Name=GameCheck
+Comment=Cross-Platform PC Hardware & Game Compatibility Checker (CalVer v\${FULL_VERSION})
+Exec=\${BIN_DIR}/gamecheck
 Path=\${INSTALL_DIR}
 Terminal=false
 Categories=Game;Utility;System;
 StartupNotify=true
 EOF_DESKTOP
+
+cat << EOF_DESKTOP_UNINSTALL > "\${APPS_DIR}/gamecheck-uninstall.desktop"
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Uninstall GameCheck
+Comment=Uninstall GameCheck and remove all application files and shortcuts
+Exec=\${BIN_DIR}/gamecheck-uninstall
+Terminal=true
+Categories=Utility;System;
+StartupNotify=false
+EOF_DESKTOP_UNINSTALL
 
 echo "{\\"status\\":\\"INSTALLED\\",\\"calver\\":\\"\${CALVER}\\",\\"installerType\\":\\"linux-sh\\",\\"installDir\\":\\"\${INSTALL_DIR}\\"}"
 `;
@@ -337,6 +395,7 @@ function buildInstallers() {
       [
         '-O2',
         '-std=c++17',
+        '-mwindows',
         'native/gamecheck_desktop.cpp',
         '-o',
         'bin/GameCheck.exe',

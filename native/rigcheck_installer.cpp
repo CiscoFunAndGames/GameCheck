@@ -77,6 +77,74 @@ static std::string trimString(const std::string& s) {
     return s.substr(start, end - start + 1);
 }
 
+static std::string toLowerAscii(std::string s) {
+    for (char& c : s) {
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    }
+    return s;
+}
+
+static std::string normalizeWinPath(std::string p) {
+    for (char& c : p) {
+        if (c == '/') c = '\\';
+    }
+    while (p.size() > 3 && p.back() == '\\') {
+        p.pop_back();
+    }
+    return p;
+}
+
+static std::string getSelfExePath() {
+    wchar_t buf[MAX_PATH];
+    DWORD len = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    if (len == 0 || len >= MAX_PATH) return "";
+    return wideToUtf8(std::wstring(buf, len));
+}
+
+static std::string getParentDir(const std::string& path) {
+    size_t pos = path.find_last_of("\\/");
+    if (pos == std::string::npos) return "";
+    return path.substr(0, pos);
+}
+
+static std::string getFileNameOnly(const std::string& path) {
+    size_t pos = path.find_last_of("\\/");
+    if (pos == std::string::npos) return path;
+    return path.substr(pos + 1);
+}
+
+static bool spawnDetachedDeleteDir(const std::string& targetDir) {
+    wchar_t tempBuf[MAX_PATH];
+    DWORD tLen = GetTempPathW(MAX_PATH, tempBuf);
+    std::wstring workDir = (tLen > 0 && tLen < MAX_PATH) ? std::wstring(tempBuf) : L"C:\\";
+
+    std::wstring wCmd = L"cmd.exe /c ping -n 2 127.0.0.1 >nul & rmdir /s /q \"" + utf8ToWide(targetDir) + L"\"";
+    STARTUPINFOW si = {};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+
+    PROCESS_INFORMATION pi = {};
+    BOOL ok = CreateProcessW(
+        nullptr,
+        &wCmd[0],
+        nullptr,
+        nullptr,
+        FALSE,
+        CREATE_NO_WINDOW | DETACHED_PROCESS,
+        nullptr,
+        workDir.c_str(),
+        &si,
+        &pi
+    );
+    if (ok) {
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        return true;
+    }
+    return false;
+}
+
 static bool fileExists(const std::string& path) {
     DWORD attr = GetFileAttributesW(utf8ToWide(path).c_str());
     return (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY));
@@ -311,14 +379,19 @@ int main(int argc, char* argv[]) {
     if (localAppData.empty()) {
         localAppData = getEnvVar("USERPROFILE") + "\\AppData\\Local";
     }
-    std::string defaultInstallDir = localAppData + "\\Programs\\RigCheckOptimizer";
+    std::string defaultInstallDir = localAppData + "\\Programs\\GameCheck";
+
+    std::string selfExePath = getSelfExePath();
+    std::string selfExeDir = getParentDir(selfExePath);
+    std::string selfExeNameLower = toLowerAscii(getFileNameOnly(selfExePath));
+    bool detectedUninstallByName = (selfExeNameLower.find("uninstall") != std::string::npos);
 
     bool verifyOnly = false;
     bool checkDepsOnly = false;
     bool silentMode = false;
     bool skipRegistryAndShortcuts = false;
     bool skipDeps = false;
-    bool uninstallMode = false;
+    bool uninstallMode = detectedUninstallByName;
     bool elevateSelf = false;
     std::string customInstallDir;
 
@@ -339,7 +412,10 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    std::string targetDir = !customInstallDir.empty() ? customInstallDir : defaultInstallDir;
+    std::string targetDir = !customInstallDir.empty()
+        ? customInstallDir
+        : (detectedUninstallByName && !selfExeDir.empty() ? selfExeDir : defaultInstallDir);
+    targetDir = normalizeWinPath(targetDir);
 
     if (elevateSelf && !isRunningAsAdmin()) {
         wchar_t selfPath[MAX_PATH];
@@ -401,31 +477,89 @@ int main(int argc, char* argv[]) {
     }
 
     if (uninstallMode) {
-        RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RigCheckOptimizer");
-        std::string userProfile = getEnvVar("USERPROFILE");
-        std::string desktopLnk = userProfile + "\\Desktop\\RigCheck Optimizer.lnk";
-        if (fileExists(desktopLnk)) DeleteFileW(utf8ToWide(desktopLnk).c_str());
-        std::cout << "[RigCheck Uninstaller] Removed registry keys and desktop shortcut." << std::endl;
+        if (!silentMode) {
+            int confirm = MessageBoxW(
+                nullptr,
+                L"Are you sure you want to completely uninstall GameCheck and remove all application files, shortcuts, and registry entries?",
+                L"GameCheck — Uninstall",
+                MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND
+            );
+            if (confirm != IDYES) {
+                std::cout << "{\"status\":\"CANCELLED\",\"reason\":\"User declined uninstall\"}" << std::endl;
+                return 1;
+            }
+        }
+
+        if (!skipRegistryAndShortcuts) {
+            std::string userProfile = getEnvVar("USERPROFILE");
+            if (!userProfile.empty()) {
+                std::string gameCheckDesktopLnk = userProfile + "\\Desktop\\GameCheck.lnk";
+                if (fileExists(gameCheckDesktopLnk)) DeleteFileW(utf8ToWide(gameCheckDesktopLnk).c_str());
+                std::string legacyDesktopLnk = userProfile + "\\Desktop\\RigCheck Optimizer.lnk";
+                if (fileExists(legacyDesktopLnk)) DeleteFileW(utf8ToWide(legacyDesktopLnk).c_str());
+            }
+
+            std::string appData = getEnvVar("APPDATA");
+            if (!appData.empty()) {
+                std::string startMenuFolder = appData + "\\Microsoft\\Windows\\Start Menu\\Programs\\GameCheck";
+                std::string smAppLnk = startMenuFolder + "\\GameCheck.lnk";
+                std::string smUninstLnk = startMenuFolder + "\\Uninstall GameCheck.lnk";
+                if (fileExists(smAppLnk)) DeleteFileW(utf8ToWide(smAppLnk).c_str());
+                if (fileExists(smUninstLnk)) DeleteFileW(utf8ToWide(smUninstLnk).c_str());
+                if (dirExists(startMenuFolder)) RemoveDirectoryW(utf8ToWide(startMenuFolder).c_str());
+
+                std::string legacyStartMenuLnk = appData + "\\Microsoft\\Windows\\Start Menu\\Programs\\RigCheck Optimizer.lnk";
+                if (fileExists(legacyStartMenuLnk)) DeleteFileW(utf8ToWide(legacyStartMenuLnk).c_str());
+            }
+
+            RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\GameCheck");
+            RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RigCheckOptimizer");
+        }
+
+        if (!targetDir.empty() && dirExists(targetDir)) {
+            std::string normSelfLower = toLowerAscii(normalizeWinPath(selfExePath));
+            std::string normTargetLower = toLowerAscii(normalizeWinPath(targetDir));
+            bool runningInsideTarget = (normSelfLower.size() > normTargetLower.size() &&
+                                        normSelfLower.rfind(normTargetLower + "\\", 0) == 0);
+            if (runningInsideTarget) {
+                spawnDetachedDeleteDir(targetDir);
+            } else {
+                std::string rmOut;
+                runCommandCapture("rmdir /s /q \"" + targetDir + "\"", rmOut);
+            }
+        }
+
+        if (!silentMode) {
+            MessageBoxW(
+                nullptr,
+                L"GameCheck has been completely uninstalled from your computer.",
+                L"GameCheck — Uninstall Complete",
+                MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND
+            );
+        }
+
+        std::cout << "{\"status\":\"UNINSTALLED\",\"installDir\":\"" << jsonEscape(targetDir) << "\"}" << std::endl;
         return 0;
     }
 
     // Interactive User Permission Prompt (when not running in --silent mode)
     if (!silentMode) {
         std::wstring promptMsg =
-            L"RigCheck Optimizer Setup (CalVer v" + utf8ToWide(fullVersion) + L")\n\n"
+            L"GameCheck Setup (CalVer v" + utf8ToWide(fullVersion) + L")\n\n"
             L"This native C++ installer will:\n"
-            L"1. Install RigCheck Optimizer to:\n   " + utf8ToWide(targetDir) + L"\n"
+            L"1. Install GameCheck to:\n   " + utf8ToWide(targetDir) + L"\n"
             L"2. Verify & install required runtime dependencies:\n"
+            L"   - GameCheck.exe Native C++17 GUI\n"
             L"   - Node.js LTS Runtime & npm\n"
             L"   - Electron Desktop App Shell\n"
             L"   - C++17 Native Display Driver Probe (rigcheck-native-probe.exe)\n"
-            L"3. Register Desktop & Start Menu shortcuts\n\n"
+            L"3. Register Desktop, Start Menu, and Windows Installed Apps entries\n\n"
             L"Do you grant permission to proceed with installation?";
 
         int response = MessageBoxW(
             nullptr,
             promptMsg.c_str(),
-            L"RigCheck Optimizer — Native Setup Permission",
+            L"GameCheck — Native Setup Permission",
             MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND
         );
         if (response != IDYES) {
@@ -434,7 +568,7 @@ int main(int argc, char* argv[]) {
         }
 
         std::cout << "==============================================================" << std::endl;
-        std::cout << "   RigCheck Optimizer Native C++ Setup — CalVer v" << fullVersion << std::endl;
+        std::cout << "   GameCheck Native C++ Setup — CalVer v" << fullVersion << std::endl;
         std::cout << "==============================================================" << std::endl;
         std::cout << "Installing to: " << targetDir << std::endl;
     }
@@ -531,55 +665,60 @@ int main(int argc, char* argv[]) {
     // Re-verify dependency status after installation
     DependencyStatus finalDeps = checkDependencies(targetDir, sourceWorkspace);
 
-    // Write Uninstall-RigCheck.cmd
-    std::string uninstallCmdPath = targetDir + "\\Uninstall-RigCheck.cmd";
-    {
-        std::ofstream ufs(uninstallCmdPath, std::ios::trunc);
-        ufs << "@echo off\r\n"
-            << "echo Uninstalling RigCheck Optimizer v" << fullVersion << "...\r\n"
-            << "reg delete \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RigCheckOptimizer\" /f >nul 2>&1\r\n"
-            << "del /f /q \"%USERPROFILE%\\Desktop\\RigCheck Optimizer.lnk\" >nul 2>&1\r\n"
-            << "echo RigCheck Optimizer uninstalled.\r\n";
+    // Copy self into targetDir as self-contained Uninstall-GameCheck.exe
+    std::string uninstallerExePath = targetDir + "\\Uninstall-GameCheck.exe";
+    if (!selfExePath.empty()) {
+        CopyFileW(utf8ToWide(selfExePath).c_str(), utf8ToWide(uninstallerExePath).c_str(), FALSE);
     }
 
-    if (!skipRegistryAndShortcuts && customInstallDir.empty()) {
+    if (!skipRegistryAndShortcuts) {
+        std::string gameCheckExe = targetDir + "\\bin\\GameCheck.exe";
         HKEY hKey = nullptr;
         if (RegCreateKeyExW(
                 HKEY_CURRENT_USER,
-                L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RigCheckOptimizer",
+                L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\GameCheck",
                 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
             auto setRegStr = [&](const wchar_t* name, const std::string& val) {
                 std::wstring wv = utf8ToWide(val);
                 RegSetValueExW(hKey, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(wv.c_str()), (DWORD)((wv.size() + 1) * sizeof(wchar_t)));
             };
-            setRegStr(L"DisplayName", "RigCheck Optimizer");
+            setRegStr(L"DisplayName", "GameCheck");
             setRegStr(L"DisplayVersion", fullVersion);
-            setRegStr(L"Publisher", "RigCheck Project");
+            setRegStr(L"Publisher", "GameCheck Contributors");
+            setRegStr(L"DisplayIcon", gameCheckExe);
             setRegStr(L"InstallLocation", targetDir);
-            setRegStr(L"UninstallString", "\"" + uninstallCmdPath + "\"");
+            setRegStr(L"UninstallString", "\"" + uninstallerExePath + "\"");
+            setRegStr(L"QuietUninstallString", "\"" + uninstallerExePath + "\" --silent");
             DWORD dwordOne = 1;
             RegSetValueExW(hKey, L"NoModify", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&dwordOne), sizeof(DWORD));
             RegSetValueExW(hKey, L"NoRepair", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&dwordOne), sizeof(DWORD));
             RegCloseKey(hKey);
         }
 
-        std::string batLauncher = targetDir + "\\RigCheck-Desktop.bat";
         std::string userProfile = getEnvVar("USERPROFILE");
         std::string appData = getEnvVar("APPDATA");
         if (!userProfile.empty()) {
             createWindowsShortcut(
-                userProfile + "\\Desktop\\RigCheck Optimizer.lnk",
-                batLauncher,
+                userProfile + "\\Desktop\\GameCheck.lnk",
+                gameCheckExe,
                 targetDir,
-                "RigCheck Optimizer — Cross-Platform PC Game & Hardware Checker"
+                "GameCheck — PC Hardware & Game Compatibility Checker"
             );
         }
         if (!appData.empty()) {
+            std::string startMenuFolder = appData + "\\Microsoft\\Windows\\Start Menu\\Programs\\GameCheck";
+            createDirsRecursive(startMenuFolder);
             createWindowsShortcut(
-                appData + "\\Microsoft\\Windows\\Start Menu\\Programs\\RigCheck Optimizer.lnk",
-                batLauncher,
+                startMenuFolder + "\\GameCheck.lnk",
+                gameCheckExe,
                 targetDir,
-                "RigCheck Optimizer — Cross-Platform PC Game & Hardware Checker"
+                "GameCheck — PC Hardware & Game Compatibility Checker"
+            );
+            createWindowsShortcut(
+                startMenuFolder + "\\Uninstall GameCheck.lnk",
+                uninstallerExePath,
+                targetDir,
+                "Uninstall GameCheck"
             );
         }
     }
