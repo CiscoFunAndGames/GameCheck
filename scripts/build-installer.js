@@ -337,6 +337,7 @@ function buildInstallers() {
       [
         '-O2',
         '-std=c++17',
+        '-mwindows',
         'native/gamecheck_desktop.cpp',
         '-o',
         'bin/GameCheck.exe',

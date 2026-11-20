@@ -102,37 +102,36 @@ jobs:
           New-Item -ItemType Directory -Force -Path bin | Out-Null
           g++ -O2 -std=c++17 native/rigcheck_probe.cpp -o bin/rigcheck-native-probe.exe -luser32 -lgdi32 -ladvapi32 -static -s
           g++ -O2 -std=c++17 native/test_core.cpp -o bin/test-gamecheck-core.exe -luser32 -lgdi32 -ladvapi32 -lshell32 -static -s
-          g++ -O2 -std=c++17 native/gamecheck_desktop.cpp -o bin/GameCheck.exe -lgdiplus -luxtheme -lcomctl32 -lcomdlg32 -lshell32 -luser32 -lgdi32 -ladvapi32 -lole32 -luuid -static -s
+          g++ -O2 -std=c++17 -mwindows native/gamecheck_desktop.cpp -o bin/GameCheck.exe -lgdiplus -luxtheme -lcomctl32 -lcomdlg32 -lshell32 -luser32 -lgdi32 -ladvapi32 -lole32 -luuid -static -s
           .\bin\rigcheck-native-probe.exe
           .\bin\GameCheck.exe --smoke-test
 
       - name: Build SHA-256 Live Patch Bundle & Native C++ Windows Installer
         shell: pwsh
         run: |
+          if (Test-Path dist) { Remove-Item -Recurse -Force dist\* }
           node scripts/create-patch.js
           node scripts/build-installer.js
 
       - name: Verify Native C++ Windows Setup Executable (--verify & --check-deps)
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path dist -Filter "RigCheck-Optimizer-Setup-*.exe" | Select-Object -First 1
-          if (-not $exe) { throw "Windows .exe installer not found in dist/" }
-          & $exe.FullName --verify
-          & $exe.FullName --check-deps
+          $exe = Join-Path dist "GameCheck-Setup-${{ steps.version.outputs.calver }}.exe"
+          if (-not (Test-Path $exe)) { throw "Windows .exe installer not found at $exe" }
+          & $exe --verify
+          & $exe --check-deps
 
       - name: Run Full Verification & Unit Test Suite (Windows)
         shell: pwsh
         run: node test/run-all.js
 
       - name: Upload Windows Downloadable Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: GameCheck-Windows-Installer
           path: |
-            dist/GameCheck-Setup-*.exe
-            dist/GameCheck-App-Payload-*.zip
-            dist/RigCheck-Optimizer-Setup-*.exe
-            dist/RigCheck-App-Payload-*.zip
+            dist/GameCheck-Setup-${{ steps.version.outputs.calver }}.exe
+            dist/GameCheck-App-Payload-${{ steps.version.outputs.calver }}.zip
             dist/rigcheck-patch-*.rigpatch.json
             dist/SHA256SUMS.txt
             dist/release-manifest.json
@@ -171,25 +170,26 @@ jobs:
 
       - name: Build SHA-256 Live Patch Bundle & Linux Self-Contained Installer
         run: |
+          rm -rf dist/*
           node scripts/create-patch.js
           node scripts/build-installer.js
 
       - name: Verify Linux Self-Contained Installer (--verify & --check-deps)
         run: |
-          chmod +x dist/rigcheck-installer-*.sh
-          bash dist/rigcheck-installer-*.sh --verify
-          bash dist/rigcheck-installer-*.sh --check-deps
+          CALVER=$(node -p "require('./version.json').calver")
+          chmod +x "dist/gamecheck-installer-${CALVER}.sh"
+          bash "dist/gamecheck-installer-${CALVER}.sh" --verify
+          bash "dist/gamecheck-installer-${CALVER}.sh" --check-deps
 
       - name: Run Full Verification & Unit Test Suite (Linux)
         run: node test/run-all.js
 
       - name: Upload Linux Downloadable Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: GameCheck-Linux-Installer
           path: |
             dist/gamecheck-installer-*.sh
-            dist/rigcheck-installer-*.sh
           if-no-files-found: error
 
   publish-release:
@@ -219,8 +219,8 @@ jobs:
         id: release_prep
         run: |
           cd release-assets
-          chmod +x rigcheck-installer-*.sh 2>/dev/null || true
-          sha256sum RigCheck-Optimizer-Setup-*.exe rigcheck-installer-*.sh RigCheck-App-Payload-*.zip rigcheck-patch-*.rigpatch.json > SHA256SUMS.txt
+          chmod +x gamecheck-installer-*.sh 2>/dev/null || true
+          sha256sum GameCheck-Setup-*.exe gamecheck-installer-*.sh GameCheck-App-Payload-*.zip rigcheck-patch-*.rigpatch.json > SHA256SUMS.txt
           cat SHA256SUMS.txt
           cd ..
           node -e '
