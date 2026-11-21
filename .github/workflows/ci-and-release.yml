@@ -46,9 +46,10 @@ jobs:
             echo "Tag push detected (${{ github.ref_name }}); keeping version.json as-is."
           else
             node scripts/calver.js bump "Automated CI release build (${GITHUB_SHA::7})"
+            node scripts/update-readme-links.js
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add version.json package.json
+            git add version.json package.json README.md
             if ! git diff --cached --quiet; then
               FULL_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('version.json','utf8')).fullVersion)")
               git commit -m "chore(release): bump CalVer to v${FULL_VER} [skip ci]"
