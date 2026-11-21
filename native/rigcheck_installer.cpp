@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // =============================================================================
 // RigCheck Optimizer — Native Windows C++17 Self-Contained Installer
 // Compiled with MinGW-w64 g++ & windres (embeds ZIP payload + UAC manifest)

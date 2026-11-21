@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 /**
  * RigCheck Optimizer — Pure C++17 Native Display & Driver Probe
  * Queries Win32 User32/GDI32/Advapi32 Display & EDID Registry APIs
