@@ -55,8 +55,8 @@ int main() {
     check(GameCheck::scoreGPU("AMD Radeon RX 7800 XT", 16) == 80, "scoreGPU(RX 7800 XT) == 80");
     check(GameCheck::scoreGPU("Intel Arc B580", 12) == 66, "scoreGPU(Intel Arc B580) == 66");
 
-    // 3. 50+ Catalog Games & Non-Invasive Zero-Library-Access Mode
-    std::cout << "\n[3/10] Testing 50+ Built-In Catalog Games & Non-Invasive Mode...\n";
+    // 3. 50+ Catalog Games & Read-Only Installed Game Discovery
+    std::cout << "\n[3/10] Testing 50+ Built-In Catalog Games & Installed Game Discovery...\n";
     auto catalog = GameCheck::getCatalogGames();
     check(catalog.size() >= 50, "Catalog contains >= 50 games (" + std::to_string(catalog.size()) + ")");
     check(catalog[0].title == "Cyberpunk 2077: Phantom Liberty" && catalog[0].steamAppId == "1091500", "Game #1 Cyberpunk 2077 verified");
@@ -64,7 +64,13 @@ int main() {
     auto installed = GameCheck::scanInstalledGames();
     auto merged = GameCheck::getMergedGameList(installed);
     std::cout << "  -> Installed Games Found: " << installed.size() << " | Merged List Total: " << merged.size() << "\n";
-    check(installed.empty(), "Non-invasive mode: scanInstalledGames() returns empty");
+    bool installedSortedFirst = true;
+    bool seenCatalogAfterInstalled = false;
+    for (const auto& g : merged) {
+        if (!g.installed) seenCatalogAfterInstalled = true;
+        else if (seenCatalogAfterInstalled) installedSortedFirst = false;
+    }
+    check(installedSortedFirst, "Installed games are sorted at the top of the merged list");
     check(merged.size() >= 50, "Merged game list has >= 50 games");
 
     // 4. 4 Screen-Aware Optimization Modes & Config Exporters
