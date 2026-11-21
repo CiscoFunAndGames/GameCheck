@@ -510,6 +510,7 @@ ${installerIconLine}101 RCDATA "${payloadZipName}"
         '-O2',
         '-s',
         '-std=c++17',
+        '-mwindows',
         '-Idist',
         'native/rigcheck_installer.cpp',
         'dist/_installer_res.o',
