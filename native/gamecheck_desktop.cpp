@@ -36,19 +36,21 @@ using std::max;
 using namespace Gdiplus;
 
 // =============================================================================
-// Minimalist Cyberpunk Palette
+// Modern Dark Slate Palette (Fluent / Linear-Inspired)
 // =============================================================================
 namespace CyberPalette {
-    static const Color VoidCanvas(255, 6, 6, 10);        // #06060A Obsidian Void
-    static const Color PanelSurface(255, 12, 12, 20);    // #0C0C14 Panel Surface
-    static const Color PanelElevated(255, 18, 18, 30);   // #12121E Hover / Elevated
-    static const Color BorderSubtle(255, 34, 36, 54);    // #222436 Hairline Grid
-    static const Color CyberYellow(255, 252, 238, 9);    // #FCEE09 Primary Accent
-    static const Color NeonCrimson(255, 255, 0, 60);     // #FF003C Secondary Accent
-    static const Color NeuralCyan(255, 0, 240, 255);     // #00F0FF Display & Telemetry
-    static const Color AcidGreen(255, 0, 255, 102);      // #00FF66 Ready / Optimal
-    static const Color TextMain(255, 242, 245, 250);     // #F2F5FA Crisp White
-    static const Color TextMuted(255, 148, 158, 176);    // #949EB0 Muted Label
+    static const Color VoidCanvas(255, 13, 17, 23);      // #0D1117 Deep Slate Canvas
+    static const Color PanelSurface(255, 22, 27, 34);    // #161B22 Elevated Card Surface
+    static const Color PanelElevated(255, 31, 38, 49);   // #1F2631 Hover / Active Surface
+    static const Color BorderSubtle(255, 45, 54, 68);    // #2D3644 Subtle 1px Border
+    static const Color CyberYellow(255, 59, 130, 246);   // #3B82F6 Primary Brand Blue
+    static const Color NeonCrimson(255, 244, 63, 94);    // #F43F5E Soft Rose / Warning
+    static const Color NeuralCyan(255, 56, 189, 248);    // #38BDF8 Soft Sky Accent
+    static const Color AcidGreen(255, 16, 185, 129);     // #10B981 Modern Emerald / Ready
+    static const Color AmberWarm(255, 245, 158, 11);     // #F59E0B Warm Amber / Medium
+    static const Color IndigoSoft(255, 129, 140, 248);   // #818CF8 Soft Indigo / Display
+    static const Color TextMain(255, 241, 245, 249);     // #F1F5F9 Crisp Slate White
+    static const Color TextMuted(255, 148, 163, 184);    // #94A3B8 Balanced Muted Gray
 }
 
 // Control IDs
@@ -59,6 +61,9 @@ enum ControlId {
     IDC_BTN_DEALS_TOP    = 1004,
     IDC_BTN_DRIVER_CFG   = 1005,
     IDC_BTN_PATCH_INFO   = 1006,
+    IDC_BTN_TOOLS        = 1007,
+    IDC_BTN_EXPORT       = 1008,
+    IDC_BTN_OPEN_FOLDER  = 1009,
 
     IDC_EDIT_SEARCH      = 1010,
     IDC_COMBO_FILTER     = 1011,
@@ -141,6 +146,10 @@ struct AppState {
     HWND btnSaveMd = nullptr;
     HWND btnCopySummary = nullptr;
     HWND btnFindDeals = nullptr;
+    HWND btnTools = nullptr;
+    HWND btnExport = nullptr;
+    HWND btnOpenFolder = nullptr;
+    HWND hwndTooltip = nullptr;
 
     HFONT hFontUi = nullptr;
     HFONT hFontUiBold = nullptr;
@@ -340,87 +349,52 @@ static Color colorFromHex(uint32_t hex, BYTE alpha = 255) {
 }
 
 // =============================================================================
-// Chamfered 45-degree Cyberpunk Polygon & Bar Renderers
+// Modern Rounded Card & Smooth Pill Progress Bar Renderers
 // =============================================================================
-static void BuildChamferPath(GraphicsPath& path, RectF r, REAL cutTopRight, REAL cutBottomLeft, REAL cutTopLeft = 0.0f, REAL cutBottomRight = 0.0f) {
-    PointF pts[8];
-    int count = 0;
-
-    if (cutTopLeft > 0.5f) {
-        pts[count++] = PointF(r.X, r.Y + cutTopLeft);
-        pts[count++] = PointF(r.X + cutTopLeft, r.Y);
-    } else {
-        pts[count++] = PointF(r.X, r.Y);
+static void BuildChamferPath(GraphicsPath& path, RectF r, REAL radius, REAL /*unused1*/ = 0.0f, REAL /*unused2*/ = 0.0f, REAL /*unused3*/ = 0.0f) {
+    REAL rad = std::max(0.0f, std::min(radius, std::min(r.Width * 0.5f, r.Height * 0.5f)));
+    if (rad < 1.0f) {
+        path.AddRectangle(r);
+        return;
     }
-
-    if (cutTopRight > 0.5f) {
-        pts[count++] = PointF(r.X + r.Width - cutTopRight, r.Y);
-        pts[count++] = PointF(r.X + r.Width, r.Y + cutTopRight);
-    } else {
-        pts[count++] = PointF(r.X + r.Width, r.Y);
-    }
-
-    if (cutBottomRight > 0.5f) {
-        pts[count++] = PointF(r.X + r.Width, r.Y + r.Height - cutBottomRight);
-        pts[count++] = PointF(r.X + r.Width - cutBottomRight, r.Y + r.Height);
-    } else {
-        pts[count++] = PointF(r.X + r.Width, r.Y + r.Height);
-    }
-
-    if (cutBottomLeft > 0.5f) {
-        pts[count++] = PointF(r.X + cutBottomLeft, r.Y + r.Height);
-        pts[count++] = PointF(r.X, r.Y + r.Height - cutBottomLeft);
-    } else {
-        pts[count++] = PointF(r.X, r.Y + r.Height);
-    }
-
-    path.AddPolygon(pts, count);
+    REAL d = rad * 2.0f;
+    path.AddArc(r.X, r.Y, d, d, 180.0f, 90.0f);
+    path.AddArc(r.X + r.Width - d, r.Y, d, d, 270.0f, 90.0f);
+    path.AddArc(r.X + r.Width - d, r.Y + r.Height - d, d, d, 0.0f, 90.0f);
+    path.AddArc(r.X, r.Y + r.Height - d, d, d, 90.0f, 90.0f);
+    path.CloseFigure();
 }
 
-static void DrawCyberPanel(Graphics& g, RectF r, Color fill, Color border, Color accentSlash, REAL cut = 9.0f, bool drawCornerTicks = true, REAL borderThickness = 1.0f) {
+static void DrawCyberPanel(Graphics& g, RectF r, Color fill, Color border, Color /*accentSlash*/, REAL radius = 8.0f, bool /*drawCornerTicks*/ = false, REAL borderThickness = 1.0f) {
     GraphicsPath path;
-    BuildChamferPath(path, r, cut, cut * 0.7f, 0.0f, 0.0f);
+    BuildChamferPath(path, r, std::min(radius, 10.0f));
 
     SolidBrush fillBrush(fill);
     g.FillPath(&fillBrush, &path);
 
-    Pen borderPen(border, borderThickness);
-    g.DrawPath(&borderPen, &path);
-
-    if (accentSlash.GetAlpha() > 0) {
-        SolidBrush slashBrush(accentSlash);
-        REAL slashH = std::max(6.0f, r.Height - cut * 0.7f - 2.0f);
-        g.FillRectangle(&slashBrush, r.X, r.Y + 1.0f, 3.0f, slashH);
-
-        if (cut > 2.0f) {
-            Pen slashPen(accentSlash, 2.0f);
-            g.DrawLine(&slashPen, PointF(r.X + r.Width - cut, r.Y), PointF(r.X + r.Width, r.Y + cut));
-        }
-    }
-
-    if (drawCornerTicks) {
-        Pen tickPen(Color(140, accentSlash.GetR(), accentSlash.GetG(), accentSlash.GetB()), 1.0f);
-        g.DrawLine(&tickPen, r.X + r.Width - 6.0f, r.Y + r.Height - 2.0f, r.X + r.Width - 2.0f, r.Y + r.Height - 2.0f);
-        g.DrawLine(&tickPen, r.X + r.Width - 2.0f, r.Y + r.Height - 6.0f, r.X + r.Width - 2.0f, r.Y + r.Height - 2.0f);
+    if (border.GetAlpha() > 0 && borderThickness > 0.0f) {
+        Pen borderPen(border, borderThickness);
+        g.DrawPath(&borderPen, &path);
     }
 }
 
-static void DrawSegmentedCyberBar(Graphics& g, RectF r, int pct, Color activeColor, int segments = 20) {
-    REAL gap = 2.0f;
-    REAL segW = (r.Width - gap * (segments - 1)) / static_cast<REAL>(segments);
-    if (segW < 2.0f) {
-        segments = 10;
-        segW = (r.Width - gap * (segments - 1)) / static_cast<REAL>(segments);
-    }
-    int activeSegs = std::clamp((pct * segments + 50) / 100, (pct > 0 ? 1 : 0), segments);
+static void DrawSegmentedCyberBar(Graphics& g, RectF r, int pct, Color activeColor, int /*segments*/ = 20) {
+    int clamped = std::clamp(pct, 0, 100);
+    REAL rad = r.Height * 0.5f;
 
-    SolidBrush onBrush(activeColor);
-    SolidBrush offBrush(Color(255, 24, 26, 40));
+    GraphicsPath trackPath;
+    BuildChamferPath(trackPath, r, rad);
+    SolidBrush trackBrush(Color(255, 30, 37, 49));
+    g.FillPath(&trackBrush, &trackPath);
 
-    for (int s = 0; s < segments; ++s) {
-        REAL sx = r.X + s * (segW + gap);
-        RectF segRect(sx, r.Y, segW, r.Height);
-        g.FillRectangle(s < activeSegs ? &onBrush : &offBrush, segRect);
+    if (clamped > 0) {
+        REAL fillW = std::max(r.Height, r.Width * (static_cast<REAL>(clamped) / 100.0f));
+        fillW = std::min(r.Width, fillW);
+        RectF fillRect(r.X, r.Y, fillW, r.Height);
+        GraphicsPath fillPath;
+        BuildChamferPath(fillPath, fillRect, rad);
+        SolidBrush fillBrush(activeColor);
+        g.FillPath(&fillBrush, &fillPath);
     }
 }
 
@@ -515,14 +489,14 @@ static void rebuildGameImageList() {
 static Color verdictColor(const std::string& verdict) {
     if (verdict == "ULTRA READY") return CyberPalette::AcidGreen;
     if (verdict == "RECOMMENDED") return CyberPalette::NeuralCyan;
-    if (verdict == "MINIMUM")     return CyberPalette::CyberYellow;
+    if (verdict == "MINIMUM")     return CyberPalette::AmberWarm;
     return CyberPalette::NeonCrimson;
 }
 
 static Color tierStatusColor(const std::string& status) {
     if (status == "EXCEEDS_RECOMMENDED") return CyberPalette::AcidGreen;
     if (status == "MEETS_RECOMMENDED")   return CyberPalette::NeuralCyan;
-    if (status == "MEETS_MINIMUM")       return CyberPalette::CyberYellow;
+    if (status == "MEETS_MINIMUM")       return CyberPalette::AmberWarm;
     return CyberPalette::NeonCrimson;
 }
 
@@ -575,6 +549,89 @@ static void populateDetailListView() {
     InvalidateRect(g_app.hwndDetailList, nullptr, FALSE);
 }
 
+static void layoutChildControls(HWND hwnd);
+
+static void setControlTooltip(HWND hwndCtrl, const wchar_t* text) {
+    if (!g_app.hwndTooltip || !hwndCtrl || !text) return;
+    TOOLINFOW ti = {};
+    ti.cbSize = sizeof(ti);
+    ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+    ti.hwnd = g_app.hwndMain;
+    ti.uId = reinterpret_cast<UINT_PTR>(hwndCtrl);
+    ti.lpszText = const_cast<LPWSTR>(text);
+    // Remove previous tooltip for this control if any, then add fresh one
+    SendMessageW(g_app.hwndTooltip, TTM_DELTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+    SendMessageW(g_app.hwndTooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+}
+
+static void refreshTooltips() {
+    if (!g_app.hwndTooltip) return;
+    setControlTooltip(g_app.btnRescan, tr(
+        L"Re-detect your PC hardware and scan Steam, Epic, GOG, and Xbox folders for installed games.",
+        L"Vuelve a detectar tu hardware y escanea Steam, Epic, GOG y Xbox en busca de juegos instalados."
+    ));
+    setControlTooltip(g_app.btnTools, tr(
+        L"Open Upgrade Simulator, Component Deals Finder, Steam Spec Parser, or Updates & Info.",
+        L"Abre Simulador de Mejoras, Buscador de Precios, Requisitos de Steam o Actualizaciones."
+    ));
+    setControlTooltip(g_app.btnWhatIf, tr(
+        L"Test how a CPU, GPU, RAM, or monitor upgrade would boost your FPS before buying.",
+        L"Prueba cu\x00E1nto mejorar\x00EDan tus FPS al actualizar CPU, GPU, RAM o monitor antes de comprar."
+    ));
+    setControlTooltip(g_app.btnParseSteam, tr(
+        L"Paste minimum/recommended specs from any Steam store page to check if your PC can run it.",
+        L"Pega los requisitos de cualquier p\x00E1gina de Steam para ver si tu PC puede correrlo."
+    ));
+    setControlTooltip(g_app.btnModeOptimal, tr(
+        L"Optimal: Balances sharp visuals and smooth FPS for your monitor's refresh rate & VRR (FreeSync/G-Sync).",
+        L"\x00D3ptimo: Equilibra gr\x00E1ficos n\x00EDtidos y FPS fluidos para la frecuencia y VRR de tu monitor."
+    ));
+    setControlTooltip(g_app.btnModeFullFps, tr(
+        L"Max FPS: Lowers heavy effects and enables performance upscaling to push as close to your monitor's max Hz as possible.",
+        L"M\x00E1x FPS: Reduce efectos pesados y activa escalado de rendimiento para acercarse a los Hz m\x00E1ximos."
+    ));
+    setControlTooltip(g_app.btnModeBalanced, tr(
+        L"Balanced: Targets steady frame pacing inside your FreeSync/G-Sync VRR window with High visuals.",
+        L"Balanceado: Busca fluidez estable dentro del rango FreeSync/G-Sync con gr\x00E1ficos en Alto."
+    ));
+    setControlTooltip(g_app.btnModeQuality, tr(
+        L"Quality: Maximizes visual fidelity (Ultra textures, sharper shadows, higher native resolution) targeting 30-60 FPS.",
+        L"Calidad: Maximiza fidelidad visual (texturas Ultra, mejores sombras) apuntando a 30-60 FPS."
+    ));
+    setControlTooltip(g_app.btnTabQuick, tr(
+        L"Quick Settings: Plain-English takeaway, recommended in-game preset, and top 3 FPS boosts.",
+        L"Ajustes R\x00E1pidos: Resumen claro, configuraci\x00F3n recomendada y las 3 mejores ganancias de FPS."
+    ));
+    setControlTooltip(g_app.btnTabMatch, tr(
+        L"PC Match: Compare your CPU, GPU, VRAM, RAM, and storage against this game's requirements.",
+        L"Hardware e Impacto: Compara tu CPU, GPU, VRAM, RAM y disco con los requisitos del juego."
+    ));
+    setControlTooltip(g_app.btnTabDriver, tr(
+        L"Driver App: Recommended AMD Adrenalin, NVIDIA App, or Intel Arc toggles (Anti-Lag/Reflex, FreeSync/G-Sync, SAM/ReBAR).",
+        L"App de Drivers: Ajustes recomendados para AMD Adrenalin, NVIDIA App o Intel Arc."
+    ));
+    setControlTooltip(g_app.btnTabTips, tr(
+        L"Upscaling & Tips: Compare FSR / DLSS / XeSS internal resolutions, VRAM savings, and extra tuning tips.",
+        L"Escalado y Consejos: Compara resoluciones internas FSR / DLSS / XeSS, ahorro de VRAM y consejos."
+    ));
+    setControlTooltip(g_app.btnCopySummary, tr(
+        L"Copy a clean, ready-to-share text summary of your PC specs and recommended game settings.",
+        L"Copia un resumen listo para compartir con tu PC y los ajustes recomendados."
+    ));
+    setControlTooltip(g_app.btnExport, tr(
+        L"Export your recommended settings as a config file (.INI), report (.JSON), or guide (.MD).",
+        L"Exporta tus ajustes recomendados como archivo .INI, reporte .JSON o gu\x00EDa .MD."
+    ));
+    setControlTooltip(g_app.btnOpenFolder, tr(
+        L"Open this installed game's folder in Windows Explorer to quickly find config files.",
+        L"Abre la carpeta de instalaci\x00F3n de este juego en el Explorador de Windows."
+    ));
+    setControlTooltip(g_app.btnFindDeals, tr(
+        L"Your PC is below recommended specs for this game. Click to compare verified component upgrade prices.",
+        L"Tu PC est\x00E1 debajo de lo recomendado para este juego. Haz clic para buscar precios de mejoras."
+    ));
+}
+
 static void updateSelectedGameAnalysis() {
     if (g_app.allGames.empty()) return;
     if (g_app.selectedGameIdx < 0 || g_app.selectedGameIdx >= static_cast<int>(g_app.allGames.size())) {
@@ -593,6 +650,20 @@ static void updateSelectedGameAnalysis() {
         InvalidateRect(g_app.btnModeFullFps, nullptr, FALSE);
         InvalidateRect(g_app.btnModeBalanced, nullptr, FALSE);
         InvalidateRect(g_app.btnModeQuality, nullptr, FALSE);
+    }
+
+    // Contextual bottom actions: show Open Game Folder only for installed games,
+    // and Find Upgrade Deals only when the PC is below recommended specs for this game.
+    if (g_app.btnOpenFolder) {
+        bool hasFolder = game.installed && !game.installDir.empty();
+        ShowWindow(g_app.btnOpenFolder, hasFolder ? SW_SHOW : SW_HIDE);
+    }
+    if (g_app.btnFindDeals) {
+        bool needsUpgrade = !g_app.currentAnalysis.canRunRecommended;
+        ShowWindow(g_app.btnFindDeals, needsUpgrade ? SW_SHOW : SW_HIDE);
+    }
+    if (g_app.hwndMain) {
+        layoutChildControls(g_app.hwndMain);
     }
     populateDetailListView();
 }
@@ -623,6 +694,7 @@ static void updateTabVisibility() {
 }
 
 static void populateGameListView();
+static void layoutChildControls(HWND hwnd);
 
 static void applyLanguageToUi() {
     if (g_app.hwndMain) {
@@ -633,27 +705,29 @@ static void applyLanguageToUi() {
         SetWindowTextW(g_app.hwndMain, winTitle.c_str());
     }
 
-    if (g_app.btnRescan)     SetWindowTextW(g_app.btnRescan,     tr(L"Rescan PC", L"Reescanear PC"));
-    if (g_app.btnWhatIf)     SetWindowTextW(g_app.btnWhatIf,     tr(L"Upgrade Simulator", L"Simulador"));
-    if (g_app.btnParseSteam) SetWindowTextW(g_app.btnParseSteam, tr(L"Paste Steam Specs", L"Pegar Req. Steam"));
-    if (g_app.btnDealsTop)   SetWindowTextW(g_app.btnDealsTop,   tr(L"Find Component Deals", L"Buscar Precios"));
-    if (g_app.btnDriverCfg)  SetWindowTextW(g_app.btnDriverCfg,  tr(L"Driver App Settings", L"App de Drivers"));
-    if (g_app.btnPatchInfo)  SetWindowTextW(g_app.btnPatchInfo,  tr(L"Updates & Info", L"Actualizaciones"));
+    if (g_app.btnRescan)     SetWindowTextW(g_app.btnRescan,     tr(L"Rescan PC", L"Reescanear"));
+    if (g_app.btnTools)      SetWindowTextW(g_app.btnTools,      tr(L"Tools \x25BE", L"Herramientas \x25BE"));
+    if (g_app.btnWhatIf)     SetWindowTextW(g_app.btnWhatIf,     g_app.isSimulated
+                                                                     ? tr(L"Simulated \x2022 Edit", L"Simulado \x2022 Editar")
+                                                                     : tr(L"Simulate Upgrade", L"Simular Mejora"));
+    if (g_app.btnParseSteam) SetWindowTextW(g_app.btnParseSteam, tr(L"+ Add Custom Game (Steam Specs)", L"+ Agregar Juego (Req. Steam)"));
     updateDetailButtonText();
 
     if (g_app.hwndSearch) {
         SendMessageW(g_app.hwndSearch, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(
-            tr(L"Search 50+ games, genres, engines...", L"Buscar 50+ juegos, g\x00E9neros, motores...")));
+            tr(L"Search games, genres, engines...", L"Buscar juegos, g\x00E9neros, motores...")));
     }
 
     if (g_app.hwndFilter) {
         int curSel = static_cast<int>(SendMessageW(g_app.hwndFilter, CB_GETCURSEL, 0, 0));
         if (curSel < 0) curSel = 0;
         SendMessageW(g_app.hwndFilter, CB_RESETCONTENT, 0, 0);
-        SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"All 50+ Games", L"Todos (50+ Juegos)")));
+        SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"Installed Games", L"Juegos Instalados")));
+        SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"All Games (Installed First)", L"Todos (Instalados Primero)")));
         SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"Ultra / Recommended", L"Ultra / Recomendado")));
         SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"Competitive / High FPS", L"Competitivo / Altos FPS")));
         SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"Story / AAA", L"Historia / AAA")));
+        if (curSel > 4) curSel = 0;
         SendMessageW(g_app.hwndFilter, CB_SETCURSEL, curSel, 0);
     }
 
@@ -677,13 +751,15 @@ static void applyLanguageToUi() {
     if (g_app.btnTabTips)   SetWindowTextW(g_app.btnTabTips,   tr(L"Upscaling & Tips", L"Escalado y Consejos"));
     if (g_app.btnSaveDrvMd) SetWindowTextW(g_app.btnSaveDrvMd, tr(L"Save Driver Guide (.MD)", L"Guardar Gu\x00EDa Drivers (.MD)"));
 
-    if (g_app.btnSaveIni)     SetWindowTextW(g_app.btnSaveIni,     tr(L"Save .INI", L"Guardar .INI"));
-    if (g_app.btnSaveJson)    SetWindowTextW(g_app.btnSaveJson,    tr(L"Save .JSON", L"Guardar .JSON"));
-    if (g_app.btnSaveMd)      SetWindowTextW(g_app.btnSaveMd,      tr(L"Save Guide (.MD)", L"Guardar Gu\x00EDa (.MD)"));
-    if (g_app.btnCopySummary) SetWindowTextW(g_app.btnCopySummary, tr(L"Copy Summary", L"Copiar Resumen"));
+    if (g_app.btnCopySummary) SetWindowTextW(g_app.btnCopySummary, tr(L"Copy Settings", L"Copiar Ajustes"));
+    if (g_app.btnExport)      SetWindowTextW(g_app.btnExport,      tr(L"Export \x25BE", L"Exportar \x25BE"));
+    if (g_app.btnOpenFolder)  SetWindowTextW(g_app.btnOpenFolder,  tr(L"Open Game Folder", L"Abrir Carpeta"));
+    if (g_app.btnFindDeals)   SetWindowTextW(g_app.btnFindDeals,   tr(L"Find Upgrade Deals", L"Buscar Mejoras"));
 
+    refreshTooltips();
     populateGameListView();
     if (g_app.hwndMain) {
+        layoutChildControls(g_app.hwndMain);
         InvalidateRect(g_app.hwndMain, nullptr, TRUE);
     }
 }
@@ -701,6 +777,22 @@ static void populateGameListView() {
     if (g_app.hwndFilter) {
         filterMode = static_cast<int>(SendMessageW(g_app.hwndFilter, CB_GETCURSEL, 0, 0));
         if (filterMode < 0) filterMode = 0;
+    }
+
+    // Check if any installed games exist; if 0 installed games on a clean machine and filter is "Installed Games",
+    // gracefully fall back to "All Games (Installed First)" so the list is never empty on first launch.
+    bool hasAnyInstalled = false;
+    for (const auto& g : g_app.allGames) {
+        if (g.installed) {
+            hasAnyInstalled = true;
+            break;
+        }
+    }
+    if (filterMode == 0 && !hasAnyInstalled && query.empty()) {
+        filterMode = 1;
+        if (g_app.hwndFilter) {
+            SendMessageW(g_app.hwndFilter, CB_SETCURSEL, 1, 0);
+        }
     }
 
     SendMessageW(g_app.hwndList, WM_SETREDRAW, FALSE, 0);
@@ -728,11 +820,15 @@ static void populateGameListView() {
             GameCheck::containsIgnoreCase(game.genre, "MOBA") ||
             GameCheck::containsIgnoreCase(game.genre, "Hero Shooter") ||
             GameCheck::containsIgnoreCase(game.genre, "Esports");
-        if (filterMode == 1) {
-            if (!ga.canRunRecommended) continue;
+        if (filterMode == 0) {
+            // Installed Games only (also keep custom parsed game if user just pasted Steam reqs)
+            bool isCustom = g_app.hasCustomParsedGame && (i == 0);
+            if (!game.installed && !isCustom) continue;
         } else if (filterMode == 2) {
-            if (!isCompetitive) continue;
+            if (!ga.canRunRecommended) continue;
         } else if (filterMode == 3) {
+            if (!isCompetitive) continue;
+        } else if (filterMode == 4) {
             if (isCompetitive) continue;
         }
 
@@ -794,43 +890,63 @@ static void layoutChildControls(HWND hwnd) {
     int w = rc.right - rc.left;
     int h = rc.bottom - rc.top;
 
-    int topBarH = 136;
+    int topBarH = 92; // 46px header + 36px slim "My PC" hardware strip + 10px breathing room
     int margin = 14;
 
-    // Language selector next to update pill in header
-    if (g_app.hwndLang) {
-        MoveWindow(g_app.hwndLang, 452, 9, 94, 120, TRUE);
-    }
-
-    // Top-right action buttons (6 clear, friendly buttons)
-    int btnY = 10;
-    int btnH = 28;
-    int rightX = w - margin;
-
-    auto placeTopBtn = [&](HWND hBtn, int bw) {
-        rightX -= bw;
-        if (hBtn) MoveWindow(hBtn, rightX, btnY, bw, btnH, TRUE);
-        rightX -= 6;
+    auto measureBtnWidth = [&](HWND hBtn, int minW) -> int {
+        if (!hBtn) return minW;
+        HDC hdcMeasure = GetDC(hwnd);
+        int outW = minW;
+        if (hdcMeasure) {
+            HFONT hOldFont = reinterpret_cast<HFONT>(SelectObject(hdcMeasure, g_app.hFontUiBold ? g_app.hFontUiBold : g_app.hFontUi));
+            wchar_t txt[128] = {};
+            int len = GetWindowTextW(hBtn, txt, 127);
+            if (len > 0) {
+                SIZE sz = {};
+                if (GetTextExtentPoint32W(hdcMeasure, txt, len, &sz)) {
+                    outW = std::max(minW, static_cast<int>(sz.cx) + 28);
+                }
+            }
+            SelectObject(hdcMeasure, hOldFont);
+            ReleaseDC(hwnd, hdcMeasure);
+        }
+        return outW;
     };
 
-    placeTopBtn(g_app.btnPatchInfo, 108);
-    placeTopBtn(g_app.btnDriverCfg, 122);
-    placeTopBtn(g_app.btnDealsTop, 134);
-    placeTopBtn(g_app.btnParseSteam, 128);
-    placeTopBtn(g_app.btnWhatIf, 124);
-    placeTopBtn(g_app.btnRescan, 96);
+    // Decluttered Top-Right Header: [EN | English v]  [Tools v]  [Rescan PC]
+    int btnY = 9;
+    int btnH = 28;
+    int btnGap = 8;
+    int rescanW = measureBtnWidth(g_app.btnRescan, 104);
+    int toolsW  = measureBtnWidth(g_app.btnTools, 94);
+    int langW   = 134;
 
-    // Left column (Search, Filter, Game List)
+    int rightX = w - margin;
+    rightX -= rescanW;
+    if (g_app.btnRescan) MoveWindow(g_app.btnRescan, rightX, btnY, rescanW, btnH, TRUE);
+    rightX -= (btnGap + toolsW);
+    if (g_app.btnTools)  MoveWindow(g_app.btnTools, rightX, btnY, toolsW, btnH, TRUE);
+    rightX -= (btnGap + langW);
+    if (g_app.hwndLang)  MoveWindow(g_app.hwndLang, rightX, btnY, langW, 120, TRUE);
+
+    // Inline "Simulate Upgrade" button inside the slim "My PC" hardware strip (y = 54..78)
+    int simW = measureBtnWidth(g_app.btnWhatIf, 136);
+    if (g_app.btnWhatIf) {
+        MoveWindow(g_app.btnWhatIf, w - margin - simW - 6, 54, simW, 24, TRUE);
+    }
+
+    // Left column (Search, Filter, Game List, + Add Custom Game at bottom)
     int leftW = std::max(380, std::min(500, static_cast<int>(w * 0.36)));
-    int contentY = topBarH + 10;
-    int contentH = h - contentY - margin;
+    int contentY = topBarH + 8;
+    int botBtnY = h - margin - 34;
 
-    int searchW = leftW - 198;
+    int filterW = 205;
+    int searchW = std::max(120, leftW - filterW - 8);
     if (g_app.hwndSearch) MoveWindow(g_app.hwndSearch, margin, contentY, searchW, 28, TRUE);
-    if (g_app.hwndFilter) MoveWindow(g_app.hwndFilter, margin + searchW + 8, contentY, 190, 220, TRUE);
+    if (g_app.hwndFilter) MoveWindow(g_app.hwndFilter, margin + searchW + 8, contentY, filterW, 220, TRUE);
 
     int listY = contentY + 36;
-    int listH = std::max(180, contentH - 36);
+    int listH = std::max(160, (botBtnY - 10) - listY);
     if (g_app.hwndList) {
         MoveWindow(g_app.hwndList, margin, listY, leftW, listH, TRUE);
         int col1W = 92;
@@ -839,6 +955,10 @@ static void layoutChildControls(HWND hwnd) {
         ListView_SetColumnWidth(g_app.hwndList, 0, col0W);
         ListView_SetColumnWidth(g_app.hwndList, 1, col1W);
         ListView_SetColumnWidth(g_app.hwndList, 2, col2W);
+    }
+    // "+ Add Custom Game (Steam Specs)" right in the left sidebar
+    if (g_app.btnParseSteam) {
+        MoveWindow(g_app.btnParseSteam, margin, botBtnY, leftW, 34, TRUE);
     }
 
     // Right Pane controls
@@ -864,15 +984,14 @@ static void layoutChildControls(HWND hwnd) {
     if (g_app.btnTabTips)   MoveWindow(g_app.btnTabTips,   rightPaneX + (tabW + tabGap) * 3, tabY, rightPaneW - (tabW + tabGap) * 3, 30, TRUE);
 
     // Save Driver Guide button inside Tab 2 (Driver App) & Detailed Toggle inside Tab 0
-    int botBtnY = h - margin - 34;
     if (g_app.btnSaveDrvMd) {
         MoveWindow(g_app.btnSaveDrvMd, rightPaneX + rightPaneW - 210, botBtnY - 46, 198, 32, TRUE);
     }
     if (g_app.btnToggleDetail) {
-        MoveWindow(g_app.btnToggleDetail, rightPaneX + rightPaneW - 196, tabY + 190, 184, 24, TRUE);
+        MoveWindow(g_app.btnToggleDetail, rightPaneX + rightPaneW - 196, tabY + 214, 184, 24, TRUE);
     }
     if (g_app.hwndDetailList) {
-        int listTop = tabY + 220;
+        int listTop = tabY + 244;
         int listHeight = std::max(80, (botBtnY - 12) - listTop - 6);
         int listW = std::max(240, rightPaneW - 20);
         MoveWindow(g_app.hwndDetailList, rightPaneX + 10, listTop, listW, listHeight, TRUE);
@@ -885,16 +1004,29 @@ static void layoutChildControls(HWND hwnd) {
         ListView_SetColumnWidth(g_app.hwndDetailList, 4, c4);
     }
 
-    // Bottom Action Bar on Right Pane
+    // Simplified Bottom Action Bar on Right Pane:
+    // [Copy Settings (Primary)]  [Export v]  [Open Game Folder (if installed)]  ... [Find Upgrade Deals (if bottlenecked)]
     int gap = 8;
     int curX = rightPaneX;
-    if (g_app.btnSaveIni && g_app.btnSaveJson && g_app.btnSaveMd && g_app.btnCopySummary) {
-        int btnW = std::max(100, (rightPaneW - gap * 3) / 4);
-        MoveWindow(g_app.btnSaveIni,     curX, botBtnY, btnW, 34, TRUE); curX += btnW + gap;
-        MoveWindow(g_app.btnSaveJson,    curX, botBtnY, btnW, 34, TRUE); curX += btnW + gap;
-        MoveWindow(g_app.btnSaveMd,      curX, botBtnY, btnW, 34, TRUE); curX += btnW + gap;
-        int lastW = std::max(btnW, (rightPaneX + rightPaneW) - curX);
-        MoveWindow(g_app.btnCopySummary, curX, botBtnY, lastW, 34, TRUE);
+    int copyW = measureBtnWidth(g_app.btnCopySummary, 148);
+    int expW  = measureBtnWidth(g_app.btnExport, 118);
+    int fldW  = measureBtnWidth(g_app.btnOpenFolder, 152);
+    int dealW = measureBtnWidth(g_app.btnFindDeals, 160);
+
+    if (g_app.btnCopySummary) {
+        MoveWindow(g_app.btnCopySummary, curX, botBtnY, copyW, 34, TRUE);
+        curX += copyW + gap;
+    }
+    if (g_app.btnExport) {
+        MoveWindow(g_app.btnExport, curX, botBtnY, expW, 34, TRUE);
+        curX += expW + gap;
+    }
+    if (g_app.btnOpenFolder && IsWindowVisible(g_app.btnOpenFolder)) {
+        MoveWindow(g_app.btnOpenFolder, curX, botBtnY, fldW, 34, TRUE);
+        curX += fldW + gap;
+    }
+    if (g_app.btnFindDeals && IsWindowVisible(g_app.btnFindDeals)) {
+        MoveWindow(g_app.btnFindDeals, rightPaneX + rightPaneW - dealW, botBtnY, dealW, 34, TRUE);
     }
 
     float tx = 0.0f, tw = 0.0f;
@@ -942,82 +1074,60 @@ static void drawCyberOwnerButton(const DRAWITEMSTRUCT* dis, Color parentBgColor 
     bool isTabBtn = (id >= IDC_BTN_TAB_QUICK && id <= IDC_BTN_TAB_TIPS);
     bool isActiveTab = isTabBtn && (static_cast<int>(id - IDC_BTN_TAB_QUICK) == g_app.activeTab);
 
-    bool isPrimaryCyber = (id == IDC_BTN_RESCAN || id == IDC_BTN_FIND_DEALS || id == IDC_DLG_OK || id == IDC_DLG_SEARCH_DEALS || id == IDC_BTN_SAVE_DRV_MD || isActiveMode);
-    bool isCrimsonBtn = (id == IDC_BTN_DEALS_TOP || (id == IDC_BTN_WHATIF && g_app.isSimulated) || id == IDC_DLG_RESET);
-    bool isCyanBtn = (isActiveTab || id == IDC_DLG_OPEN_BROWSER || id == IDC_DLG_PASTE_CLIP);
+    bool isPrimaryCta = (id == IDC_BTN_RESCAN || id == IDC_BTN_COPY_SUMMARY || id == IDC_DLG_OK || id == IDC_DLG_SEARCH_DEALS || id == IDC_BTN_SAVE_DRV_MD);
+    bool isAccentReset = ((id == IDC_BTN_WHATIF && g_app.isSimulated) || id == IDC_DLG_RESET || id == IDC_BTN_FIND_DEALS);
 
-    Color fillCol = CyberPalette::PanelSurface;
+    Color fillCol = Color(255, 26, 32, 44);
     Color borderCol = CyberPalette::BorderSubtle;
-    Color slashCol = CyberPalette::NeuralCyan;
     Color textCol = CyberPalette::TextMain;
 
-    if (isActiveMode || isPrimaryCyber) {
-        fillCol = Color(255, 26, 24, 10);
-        borderCol = CyberPalette::CyberYellow;
-        slashCol = CyberPalette::CyberYellow;
-        textCol = CyberPalette::CyberYellow;
-    } else if (isCyanBtn) {
-        fillCol = Color(255, 10, 24, 32);
-        borderCol = CyberPalette::NeuralCyan;
-        slashCol = CyberPalette::NeuralCyan;
-        textCol = CyberPalette::NeuralCyan;
-    } else if (isCrimsonBtn) {
-        fillCol = Color(255, 28, 10, 18);
-        borderCol = CyberPalette::NeonCrimson;
-        slashCol = CyberPalette::NeonCrimson;
-        textCol = CyberPalette::TextMain;
+    if (isPrimaryCta) {
+        fillCol = Color(255, 37, 99, 235);     // #2563EB Modern Electric Blue
+        borderCol = Color(255, 59, 130, 246);  // #3B82F6
+        textCol = Color(255, 255, 255, 255);
+    } else if (isActiveMode || isActiveTab) {
+        fillCol = Color(255, 29, 41, 63);      // Soft Indigo-Slate active fill
+        borderCol = CyberPalette::CyberYellow; // #3B82F6
+        textCol = Color(255, 248, 250, 252);
+    } else if (isAccentReset) {
+        fillCol = Color(255, 42, 23, 32);
+        borderCol = Color(255, 190, 56, 84);
+        textCol = Color(255, 253, 164, 175);
     } else if (isModeBtn || isTabBtn) {
         fillCol = CyberPalette::PanelSurface;
-        borderCol = Color(255, 42, 46, 68);
-        slashCol = CyberPalette::TextMuted;
+        borderCol = Color(255, 38, 46, 58);
         textCol = CyberPalette::TextMuted;
     }
 
     if (hoverT > 0.001f) {
-        Color glowFill(
-            255,
-            static_cast<BYTE>(std::min(255, static_cast<int>(fillCol.GetR()) + 14 + static_cast<int>(slashCol.GetR()) / 12)),
-            static_cast<BYTE>(std::min(255, static_cast<int>(fillCol.GetG()) + 14 + static_cast<int>(slashCol.GetG()) / 12)),
-            static_cast<BYTE>(std::min(255, static_cast<int>(fillCol.GetB()) + 20 + static_cast<int>(slashCol.GetB()) / 12))
-        );
-        fillCol = lerpColor(fillCol, glowFill, hoverT);
-
-        Color brightBorder(
-            255,
-            static_cast<BYTE>(std::min(255, static_cast<int>(slashCol.GetR()) + 24)),
-            static_cast<BYTE>(std::min(255, static_cast<int>(slashCol.GetG()) + 24)),
-            static_cast<BYTE>(std::min(255, static_cast<int>(slashCol.GetB()) + 24))
-        );
-        borderCol = lerpColor(borderCol, brightBorder, hoverT);
-
-        if ((isModeBtn || isTabBtn) && !isActiveMode && !isActiveTab) {
-            textCol = lerpColor(textCol, CyberPalette::TextMain, hoverT);
+        if (isPrimaryCta) {
+            fillCol = lerpColor(fillCol, Color(255, 59, 130, 246), hoverT);
+            borderCol = lerpColor(borderCol, Color(255, 96, 165, 250), hoverT);
+        } else if (isActiveMode || isActiveTab) {
+            fillCol = lerpColor(fillCol, Color(255, 36, 52, 78), hoverT);
+            borderCol = lerpColor(borderCol, Color(255, 96, 165, 250), hoverT);
+        } else {
+            fillCol = lerpColor(fillCol, CyberPalette::PanelElevated, hoverT);
+            borderCol = lerpColor(borderCol, Color(255, 71, 85, 105), hoverT);
+            if (isModeBtn || isTabBtn) {
+                textCol = lerpColor(textCol, CyberPalette::TextMain, hoverT);
+            }
         }
     }
 
-    REAL borderThickness = 1.0f + 0.6f * hoverT;
+    REAL borderThickness = 1.0f;
     if (isPressed) {
-        fillCol = Color(255, 36, 36, 54);
-        borderCol = CyberPalette::NeuralCyan;
-        borderThickness = 1.6f;
+        fillCol = isPrimaryCta ? Color(255, 29, 78, 216) : Color(255, 36, 44, 58);
+        borderCol = CyberPalette::CyberYellow;
     }
 
-    REAL pressOff = isPressed ? 1.0f : 0.0f;
+    REAL pressOff = isPressed ? 0.5f : 0.0f;
     RectF btnRect(1.0f + pressOff, 1.0f + pressOff, static_cast<REAL>(w - 2 - (isPressed ? 1 : 0)), static_cast<REAL>(h - 2 - (isPressed ? 1 : 0)));
-    DrawCyberPanel(g, btnRect, fillCol, borderCol, slashCol, 7.0f, false, borderThickness);
+    DrawCyberPanel(g, btnRect, fillCol, borderCol, Color(0, 0, 0, 0), 6.0f, false, borderThickness);
 
-    float slashProgress = isPressed ? 1.0f : hoverT;
-    if (slashProgress > 0.01f) {
-        Color glideCol = isPressed ? CyberPalette::NeuralCyan : slashCol;
-        SolidBrush glideBrush(Color(static_cast<BYTE>(190 * slashProgress + 65), glideCol.GetR(), glideCol.GetG(), glideCol.GetB()));
-        REAL bottomLen = std::max(0.0f, (btnRect.Width - 6.0f) * slashProgress);
-        if (bottomLen > 1.0f) {
-            g.FillRectangle(&glideBrush, btnRect.X + 3.0f, btnRect.Y + btnRect.Height - 2.0f, bottomLen, 2.0f);
-        }
-        REAL leftLen = std::max(0.0f, (btnRect.Height - 6.0f) * slashProgress);
-        if (leftLen > 1.0f) {
-            g.FillRectangle(&glideBrush, btnRect.X, btnRect.Y + 1.0f, 3.0f, leftLen);
-        }
+    if (isActiveTab) {
+        SolidBrush tabBarBrush(CyberPalette::CyberYellow);
+        g.FillRectangle(&tabBarBrush, btnRect.X + 10.0f, btnRect.Y + btnRect.Height - 2.5f, std::max(0.0f, btnRect.Width - 20.0f), 2.5f);
     }
 
     wchar_t textBuf[256] = {};
@@ -1068,11 +1178,6 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
     float easedTab = 1.0f - std::pow(1.0f - rawTabT, 3.0f);
     float easedBar = 1.0f - std::pow(1.0f - rawBarT, 3.0f);
 
-    Pen gridPen(Color(14, 0, 240, 255), 1.0f);
-    for (int gx = 0; gx < w; gx += 64) {
-        g.DrawLine(&gridPen, gx, 0, gx, h);
-    }
-
     FontFamily fontSans(L"Segoe UI");
 
     Font fontTitle(&fontSans, 14.5f, FontStyleBold, UnitPoint);
@@ -1105,116 +1210,84 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
     centerFmt.SetLineAlignment(StringAlignmentCenter);
 
     // =========================================================================
-    // 1. HEADER & 4 HARDWARE SUMMARY CARDS
+    // 1. COMPACT HEADER & SLIM "MY PC" HARDWARE STRIP
     // =========================================================================
-    SolidBrush topBarBg(Color(255, 9, 9, 15));
-    g.FillRectangle(&topBarBg, 0, 0, w, 134);
+    SolidBrush topBarBg(Color(255, 17, 22, 31));
+    g.FillRectangle(&topBarBg, 0, 0, w, 90);
 
     Pen headerLinePen(CyberPalette::BorderSubtle, 1.0f);
-    g.DrawLine(&headerLinePen, 0, 134, w, 134);
-    SolidBrush yellowAccentBar(CyberPalette::CyberYellow);
-    g.FillRectangle(&yellowAccentBar, 14, 133, 180, 2);
-    SolidBrush crimsonAccentBar(CyberPalette::NeonCrimson);
-    g.FillRectangle(&crimsonAccentBar, 198, 133, 60, 2);
+    g.DrawLine(&headerLinePen, 0, 90, w, 90);
 
-    // Brand Title
-    g.DrawString(L"GameCheck", -1, &fontTitle, PointF(14.0f, 8.0f), &yellowBrush);
+    // Brand Title (crisp white modern wordmark)
+    g.DrawString(L"GameCheck", -1, &fontTitle, PointF(14.0f, 9.0f), &whiteBrush);
 
     // Version Pill
-    RectF verRect(120.0f, 11.0f, 96.0f, 22.0f);
-    DrawCyberPanel(g, verRect, Color(255, 24, 22, 8), CyberPalette::CyberYellow, CyberPalette::CyberYellow, 5.0f, false);
+    RectF verRect(120.0f, 12.0f, 96.0f, 22.0f);
+    DrawCyberPanel(g, verRect, Color(255, 24, 34, 52), Color(255, 48, 72, 112), Color(0, 0, 0, 0), 11.0f, false);
     std::wstring wVer = L"v" + GameCheck::utf8ToWide(GameCheck::FULL_VERSION);
-    g.DrawString(wVer.c_str(), -1, &fontPill, verRect, &centerFmt, &yellowBrush);
-
-    // Status Pill
-    RectF safeRect(222.0f, 11.0f, 116.0f, 22.0f);
-    DrawCyberPanel(g, safeRect, Color(255, 8, 22, 28), CyberPalette::NeuralCyan, CyberPalette::NeuralCyan, 5.0f, false);
-    g.DrawString(tr(L"Read-Only \x2022 Safe", L"Solo Lectura \x2022 Seguro"), -1, &fontPill, safeRect, &centerFmt, &cyanBrush);
+    SolidBrush verTextBrush(Color(255, 147, 197, 253));
+    g.DrawString(wVer.c_str(), -1, &fontPill, verRect, &centerFmt, &verTextBrush);
 
     // Live Auto-Update Status Pill
-    RectF updRect(344.0f, 11.0f, 102.0f, 22.0f);
-    DrawCyberPanel(g, updRect, Color(255, 12, 20, 18), g_app.updatePillColor, g_app.updatePillColor, 5.0f, false);
+    RectF updRect(224.0f, 12.0f, 108.0f, 22.0f);
+    DrawCyberPanel(g, updRect, CyberPalette::PanelSurface, CyberPalette::BorderSubtle, Color(0, 0, 0, 0), 11.0f, false);
     SolidBrush updBrush(g_app.updatePillColor);
     g.DrawString(g_app.updatePillText.c_str(), -1, &fontPill, updRect, &centerFmt, &updBrush);
 
-    // 4 Hardware Cards
-    int cardY = 46;
-    int cardH = 80;
-    int cardGap = 10;
-    int cardW = (w - 28 - cardGap * 3) / 4;
+    // Slim Single-Row "My PC" Hardware Strip (y = 48..84)
     const auto& sp = g_app.activeSpecs;
+    RectF stripRect(14.0f, 48.0f, static_cast<REAL>(w - 28), 36.0f);
+    DrawCyberPanel(g, stripRect, CyberPalette::PanelSurface, CyberPalette::BorderSubtle, Color(0, 0, 0, 0), 8.0f, false);
 
-    struct HwCard {
-        std::wstring label;
-        std::wstring mainVal;
-        std::wstring subVal;
-        int score;
-        Color barCol;
+    // Leave space on the right of the strip for the inline Simulate Upgrade button
+    REAL simReserve = 160.0f;
+    REAL usableStripW = std::max(400.0f, stripRect.Width - simReserve - 16.0f);
+    REAL segW = usableStripW / 4.0f;
+
+    std::wstring simTag = g_app.isSimulated ? tr(L" (Sim)", L" (Sim)") : L"";
+    std::wstring vrrShort = sp.display.vrrCapable ? L"VRR" : L"Fixed";
+
+    struct SlimHwItem {
+        std::wstring tag;
+        std::wstring text;
+        Color dotCol;
     };
-
-    std::wstring simTag = g_app.isSimulated ? tr(L" (Simulated)", L" (Simulado)") : L"";
-    std::wstring vrrText = sp.display.vrrCapable
-        ? tr(L"FreeSync / G-Sync Ready", L"FreeSync / G-Sync Listo")
-        : tr(L"Fixed Refresh Rate", L"Frecuencia Fija");
-
-    std::wstring cpuSub = std::to_wstring(sp.cpu.cores) + tr(L" Cores / ", L" N\x00FAcleos / ") +
-                          std::to_wstring(sp.cpu.threads) + tr(L" Threads \x2022 Score: ", L" Hilos \x2022 Puntaje: ") +
-                          std::to_wstring(sp.cpu.score) + L"/100";
-    std::wstring gpuSub = std::to_wstring(sp.gpu.vramGB) + L" GB VRAM \x2022 " +
-                          GameCheck::utf8ToWide(sp.gpu.upscaler) + tr(L" \x2022 Score: ", L" \x2022 Puntaje: ") +
-                          std::to_wstring(sp.gpu.score) + L"/100";
-    std::wstring ramSub = GameCheck::utf8ToWide(sp.storage.drive) + L" " + std::to_wstring(sp.storage.freeGB) +
-                          tr(L" GB Free of ", L" GB Libres de ") + std::to_wstring(sp.storage.totalGB) +
-                          L" GB (" + std::to_wstring(sp.storage.allDrives.size()) + tr(L" Drives)", L" Discos)");
-
-    HwCard cards[4] = {
+    SlimHwItem hwItems[4] = {
         {
-            tr(L"Processor (CPU)", L"Procesador (CPU)"),
-            GameCheck::utf8ToWide(sp.cpu.name) + simTag,
-            cpuSub,
-            sp.cpu.score,
+            L"CPU",
+            GameCheck::utf8ToWide(sp.cpu.name) + L" (" + std::to_wstring(sp.cpu.score) + L"/100)" + simTag,
             CyberPalette::NeuralCyan
         },
         {
-            tr(L"Graphics Card (GPU)", L"Tarjeta Gr\x00E1fica (GPU)"),
-            GameCheck::utf8ToWide(sp.gpu.name) + simTag,
-            gpuSub,
-            sp.gpu.score,
+            L"GPU",
+            GameCheck::utf8ToWide(sp.gpu.name) + L" \x2022 " + std::to_wstring(sp.gpu.vramGB) + L" GB (" + std::to_wstring(sp.gpu.score) + L"/100)" + simTag,
             CyberPalette::CyberYellow
         },
         {
-            tr(L"Memory & Storage", L"Memoria y Almacenamiento"),
-            std::to_wstring(sp.ram.totalGB) + tr(L" GB System RAM", L" GB RAM del Sistema") + simTag,
-            ramSub,
-            std::min(100, (sp.ram.totalGB * 100) / 32),
+            L"RAM / Disk",
+            std::to_wstring(sp.ram.totalGB) + L" GB RAM \x2022 " + GameCheck::utf8ToWide(sp.storage.drive) + L" " + std::to_wstring(sp.storage.freeGB) + tr(L" GB Free", L" GB Libres"),
             CyberPalette::AcidGreen
         },
         {
-            tr(L"Main Display", L"Pantalla Principal"),
-            GameCheck::utf8ToWide(std::to_string(sp.display.width) + "x" + std::to_string(sp.display.height) + " @ " + std::to_string(sp.display.refreshRateHz) + "Hz (" + sp.display.tier + ")") + simTag,
-            GameCheck::utf8ToWide(sp.display.name) + L" \x2022 " + vrrText,
-            std::min(100, (sp.display.refreshRateHz * 100) / 180),
-            CyberPalette::NeonCrimson
+            tr(L"Display", L"Monitor"),
+            GameCheck::utf8ToWide(std::to_string(sp.display.width) + "x" + std::to_string(sp.display.height) + " @ " + std::to_string(sp.display.refreshRateHz) + "Hz \xE2\x80\xA2 ") + vrrShort,
+            CyberPalette::IndigoSoft
         }
     };
 
     for (int i = 0; i < 4; ++i) {
-        REAL cx = static_cast<REAL>(14 + i * (cardW + cardGap));
-        RectF cRect(cx, static_cast<REAL>(cardY), static_cast<REAL>(cardW), static_cast<REAL>(cardH));
-        DrawCyberPanel(g, cRect, CyberPalette::PanelSurface, CyberPalette::BorderSubtle, cards[i].barCol, 9.0f, true);
+        REAL ix = stripRect.X + 12.0f + i * segW;
+        if (i > 0) {
+            Pen sepPen(CyberPalette::BorderSubtle, 1.0f);
+            g.DrawLine(&sepPen, ix - 8.0f, stripRect.Y + 8.0f, ix - 8.0f, stripRect.Y + stripRect.Height - 8.0f);
+        }
+        // Subtle status dot
+        SolidBrush dotBrush(hwItems[i].dotCol);
+        g.FillEllipse(&dotBrush, ix, stripRect.Y + 14.0f, 7.0f, 7.0f);
 
-        SolidBrush hdrBrush(cards[i].barCol);
-        g.DrawString(cards[i].label.c_str(), -1, &fontCardHdr, PointF(cx + 12.0f, cardY + 7.0f), &hdrBrush);
-
-        RectF valBox(cx + 12.0f, cardY + 25.0f, cardW - 24.0f, 19.0f);
-        g.DrawString(cards[i].mainVal.c_str(), -1, &fontCardVal, valBox, &ellipsisFmt, &whiteBrush);
-
-        RectF subBox(cx + 12.0f, cardY + 46.0f, cardW - 24.0f, 16.0f);
-        g.DrawString(cards[i].subVal.c_str(), -1, &fontCardSub, subBox, &ellipsisFmt, &mutedBrush);
-
-        RectF barRect(cx + 12.0f, cardY + 66.0f, cardW - 24.0f, 5.0f);
-        int animCardScore = static_cast<int>(std::round(cards[i].score * easedBar));
-        DrawSegmentedCyberBar(g, barRect, animCardScore, cards[i].barCol, 18);
+        g.DrawString(hwItems[i].tag.c_str(), -1, &fontCardHdr, PointF(ix + 12.0f, stripRect.Y + 4.0f), &mutedBrush);
+        RectF valBox(ix + 12.0f, stripRect.Y + 17.0f, segW - 24.0f, 16.0f);
+        g.DrawString(hwItems[i].text.c_str(), -1, &fontCardSub, valBox, &ellipsisFmt, &whiteBrush);
     }
 
     // =========================================================================
@@ -1223,7 +1296,7 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
     int leftW = std::max(380, std::min(500, static_cast<int>(w * 0.36)));
     REAL rx = static_cast<REAL>(14 + leftW + 16);
     REAL rw = static_cast<REAL>(std::max(380, w - static_cast<int>(rx) - 14));
-    REAL ry = 146.0f;
+    REAL ry = 100.0f;
 
     if (g_app.allGames.empty()) {
         BitBlt(hdc, 0, 0, w, h, memDC, 0, 0, SRCCOPY);
@@ -1236,35 +1309,40 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
     const auto& game = g_app.allGames[g_app.selectedGameIdx];
     const auto& an = g_app.currentAnalysis;
 
-    // 2A. Hero Game Banner
+    // 2A. Hero Game Banner (clean modern rounded card with subtle gradient)
     RectF bannerRect(rx, ry, rw, 106.0f);
     GraphicsPath heroPath;
-    BuildChamferPath(heroPath, bannerRect, 14.0f, 10.0f, 0.0f, 0.0f);
+    BuildChamferPath(heroPath, bannerRect, 10.0f);
 
+    Color tintRaw = colorFromHex(game.bannerColor2, 255);
+    Color heroRightCol(
+        255,
+        static_cast<BYTE>(20 + tintRaw.GetR() / 6),
+        static_cast<BYTE>(26 + tintRaw.GetG() / 6),
+        static_cast<BYTE>(38 + tintRaw.GetB() / 5)
+    );
     LinearGradientBrush heroGrad(
         PointF(rx, ry),
         PointF(rx + rw, ry + 106.0f),
-        Color(255, 14, 14, 24),
-        colorFromHex(game.bannerColor2, 220)
+        CyberPalette::PanelSurface,
+        heroRightCol
     );
     g.FillPath(&heroGrad, &heroPath);
 
-    Pen scanPen(Color(20, 252, 238, 9), 1.0f);
-    for (REAL sx = rx + 20.0f; sx < rx + rw - 20.0f; sx += 28.0f) {
-        g.DrawLine(&scanPen, sx, ry + 2.0f, sx - 18.0f, ry + 104.0f);
-    }
-
-    Pen heroBorder(CyberPalette::CyberYellow, 1.2f);
+    Pen heroBorder(CyberPalette::BorderSubtle, 1.0f);
     g.DrawPath(&heroBorder, &heroPath);
-
-    SolidBrush heroLeftBar(CyberPalette::CyberYellow);
-    g.FillRectangle(&heroLeftBar, rx, ry + 1.0f, 4.0f, 94.0f);
 
     // Monogram Emblem
     RectF emblemRect(rx + 16.0f, ry + 13.0f, 80.0f, 80.0f);
-    DrawCyberPanel(g, emblemRect, Color(235, 8, 8, 14), colorFromHex(game.accentColor, 255), CyberPalette::CyberYellow, 10.0f, true);
+    Color emblemBg(
+        255,
+        static_cast<BYTE>(22 + tintRaw.GetR() / 5),
+        static_cast<BYTE>(28 + tintRaw.GetG() / 5),
+        static_cast<BYTE>(40 + tintRaw.GetB() / 4)
+    );
+    DrawCyberPanel(g, emblemRect, emblemBg, CyberPalette::BorderSubtle, Color(0, 0, 0, 0), 10.0f, false);
     std::wstring wMono = GameCheck::utf8ToWide(game.monogram);
-    g.DrawString(wMono.c_str(), -1, &fontMonogram, emblemRect, &centerFmt, &yellowBrush);
+    g.DrawString(wMono.c_str(), -1, &fontMonogram, emblemRect, &centerFmt, &whiteBrush);
 
     // Game Title & Metadata
     std::wstring wTitle = GameCheck::utf8ToWide(game.title);
@@ -1281,12 +1359,14 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
         (game.supportsRT ? " \xE2\x80\xA2 Ray Tracing" : "")
     );
     RectF metaBox(rx + 110.0f, ry + 41.0f, rw - 320.0f, 18.0f);
-    g.DrawString(wMeta.c_str(), -1, &fontCardSub, metaBox, &ellipsisFmt, &cyanBrush);
+    g.DrawString(wMeta.c_str(), -1, &fontCardSub, metaBox, &ellipsisFmt, &mutedBrush);
 
     // Play Status Pill
     RectF statusPill(rx + 110.0f, ry + 66.0f, 152.0f, 24.0f);
-    Color stAccent = (game.playStatus == "PLAYING_NOW") ? CyberPalette::AcidGreen : (game.installed ? CyberPalette::NeuralCyan : CyberPalette::TextMuted);
-    DrawCyberPanel(g, statusPill, Color(230, 10, 12, 20), stAccent, stAccent, 6.0f, false);
+    Color stAccent = (game.playStatus == "PLAYING_NOW" || game.installed) ? CyberPalette::AcidGreen : CyberPalette::TextMuted;
+    Color stBg = game.installed ? Color(255, 18, 38, 34) : Color(255, 24, 30, 40);
+    Color stBorder = game.installed ? Color(255, 30, 92, 76) : CyberPalette::BorderSubtle;
+    DrawCyberPanel(g, statusPill, stBg, stBorder, Color(0, 0, 0, 0), 12.0f, false);
     std::wstring wPlayBadge = playStatusDisplayBadge(game);
     SolidBrush stTextBrush(stAccent);
     g.DrawString(wPlayBadge.c_str(), -1, &fontPill, statusPill, &centerFmt, &stTextBrush);
@@ -1298,7 +1378,9 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
 
     RectF verdictPill(rx + rw - 186.0f, ry + 22.0f, 172.0f, 28.0f);
     Color vCol = verdictColor(an.verdictBadge);
-    DrawCyberPanel(g, verdictPill, Color(235, 10, 10, 18), vCol, vCol, 7.0f, false);
+    Color vBg(255, static_cast<BYTE>(18 + vCol.GetR() / 10), static_cast<BYTE>(22 + vCol.GetG() / 10), static_cast<BYTE>(30 + vCol.GetB() / 10));
+    Color vBorder(160, vCol.GetR(), vCol.GetG(), vCol.GetB());
+    DrawCyberPanel(g, verdictPill, vBg, vBorder, Color(0, 0, 0, 0), 8.0f, false);
     SolidBrush vTextBrush(vCol);
     std::wstring wVerdict = translateVerdict(an.verdictBadge);
     g.DrawString(wVerdict.c_str(), -1, &fontSection, verdictPill, &centerFmt, &vTextBrush);
@@ -1320,12 +1402,10 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
         computeTabIndicatorBounds(g_app.activeTab, indX, indW);
         float drawX = g_app.tabIndicatorInit ? g_app.tabIndicatorX : indX;
         REAL indY = ry + 186.0f;
-        SolidBrush glowTrack(Color(35, 0, 240, 255));
+        SolidBrush glowTrack(CyberPalette::BorderSubtle);
         g.FillRectangle(&glowTrack, rx, indY + 1.0f, rw, 1.0f);
-        SolidBrush indGlow(Color(80, 0, 240, 255));
-        g.FillRectangle(&indGlow, static_cast<REAL>(drawX) - 2.0f, indY - 1.0f, indW + 4.0f, 5.0f);
-        SolidBrush indCore(CyberPalette::NeuralCyan);
-        g.FillRectangle(&indCore, static_cast<REAL>(drawX), indY, indW, 3.0f);
+        SolidBrush indCore(CyberPalette::CyberYellow);
+        g.FillRectangle(&indCore, static_cast<REAL>(drawX), indY, indW, 2.5f);
     }
 
     REAL curY = ry + 196.0f;
@@ -1341,35 +1421,50 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
     }
 
     // =========================================================================
-    // TAB 0: QUICK SETTINGS (Calm Default View)
+    // TAB 0: QUICK SETTINGS (Calm Default View with Plain-English TL;DR)
     // =========================================================================
     if (g_app.activeTab == 0) {
-        // 1. Clean Screen Refresh Match Card
-        RectF screenCard(rx, curY, rw, 74.0f);
-        DrawCyberPanel(g, screenCard, CyberPalette::PanelSurface, CyberPalette::BorderSubtle, CyberPalette::NeuralCyan, 8.0f, true);
+        // 1. Plain-English TL;DR Takeaway + Monitor Refresh Match Card
+        RectF tldrCard(rx, curY, rw, 98.0f);
+        DrawCyberPanel(g, tldrCard, CyberPalette::PanelSurface, CyberPalette::BorderSubtle, Color(0, 0, 0, 0), 8.0f, false);
 
-        std::wstring wScreenTitle = std::wstring(tr(L"Screen Refresh Match \x2022 ", L"Ajuste a Pantalla \x2022 ")) +
-            GameCheck::utf8ToWide(an.monitorName + " (" + std::to_string(an.screenWidth) + "x" + std::to_string(an.screenHeight) +
-            " @ " + std::to_string(an.refreshRateHz) + "Hz)");
-        g.DrawString(wScreenTitle.c_str(), -1, &fontCardHdr, RectF(rx + 14.0f, curY + 10.0f, rw - 28.0f, 18.0f), &ellipsisFmt, &cyanBrush);
+        std::string top1 = !an.settingImpacts.empty()
+            ? (an.settingImpacts[0].setting + " -> " + an.settingImpacts[0].recommendedValue)
+            : ("Preset -> " + an.preset);
+        std::string top2 = (an.settingImpacts.size() >= 2)
+            ? (an.settingImpacts[1].setting + " -> " + an.settingImpacts[1].recommendedValue)
+            : ("Upscaling -> " + an.upscalingMode);
+        std::string verdictPhraseEn = an.canRunRecommended
+            ? "Runs smoothly on your " + sp.gpu.name + " (~" + std::to_string(an.estimatedScreenFps.avg) + " FPS at " + an.targetResolution + ")."
+            : (an.canRunMinimum
+                ? "Playable on your " + sp.gpu.name + " (~" + std::to_string(an.estimatedScreenFps.avg) + " FPS at " + an.targetResolution + ")."
+                : "Demanding for your " + sp.gpu.name + " (~" + std::to_string(an.estimatedScreenFps.avg) + " FPS). Lowering heavy effects is recommended.");
+        std::string verdictPhraseEs = an.canRunRecommended
+            ? "Corre muy bien en tu " + sp.gpu.name + " (~" + std::to_string(an.estimatedScreenFps.avg) + " FPS en " + an.targetResolution + ")."
+            : (an.canRunMinimum
+                ? "Jugable en tu " + sp.gpu.name + " (~" + std::to_string(an.estimatedScreenFps.avg) + " FPS en " + an.targetResolution + ")."
+                : "Exigente para tu " + sp.gpu.name + " (~" + std::to_string(an.estimatedScreenFps.avg) + " FPS). Recomendamos bajar efectos pesados.");
+
+        std::wstring wTldrBody = g_app.isSpanish
+            ? GameCheck::utf8ToWide(verdictPhraseEs + " Recomendado: " + top1 + " y " + top2 + " (Escalado: " + an.upscalingMode + ").")
+            : GameCheck::utf8ToWide(verdictPhraseEn + " Best tweaks: " + top1 + " and " + top2 + " (Upscaling: " + an.upscalingMode + ").");
+
+        g.DrawString(tr(L"Quick Takeaway", L"Resumen R\x00E1pido"), -1, &fontCardHdr, PointF(rx + 14.0f, curY + 10.0f), &cyanBrush);
+        g.DrawString(wTldrBody.c_str(), -1, &fontTable, RectF(rx + 14.0f, curY + 27.0f, rw - 28.0f, 34.0f), &wrapFmt, &whiteBrush);
 
         REAL satBarX = rx + 14.0f;
-        REAL satBarY = curY + 34.0f;
-        REAL satBarW = rw * 0.40f;
-        Color satCol = an.refreshSaturationPct >= 85 ? CyberPalette::AcidGreen : (an.refreshSaturationPct >= 55 ? CyberPalette::NeuralCyan : CyberPalette::CyberYellow);
+        REAL satBarY = curY + 70.0f;
+        REAL satBarW = std::min(260.0f, rw * 0.32f);
+        Color satCol = an.refreshSaturationPct >= 85 ? CyberPalette::AcidGreen : (an.refreshSaturationPct >= 55 ? CyberPalette::NeuralCyan : CyberPalette::AmberWarm);
         int animSatPct = static_cast<int>(std::round(an.refreshSaturationPct * easedBar));
-        DrawSegmentedCyberBar(g, RectF(satBarX, satBarY, satBarW, 9.0f), animSatPct, satCol, 20);
+        DrawSegmentedCyberBar(g, RectF(satBarX, satBarY + 3.0f, satBarW, 7.0f), animSatPct, satCol, 20);
 
-        std::wstring wSatPct = std::wstring(tr(L"Refresh Match: ", L"Uso de Hz: ")) +
+        std::wstring wSatPct = std::wstring(tr(L"Monitor Match: ", L"Uso de Hz: ")) +
             std::to_wstring(an.refreshSaturationPct) + L"% (" + std::to_wstring(an.estimatedScreenFps.avg) + L" / " +
-            std::to_wstring(an.refreshRateHz) + L" Hz)";
-        g.DrawString(wSatPct.c_str(), -1, &fontCardSub, PointF(satBarX, curY + 48.0f), &whiteBrush);
+            std::to_wstring(an.refreshRateHz) + L" Hz) \x2022 " + GameCheck::utf8ToWide(an.fpsCapAdvice);
+        g.DrawString(wSatPct.c_str(), -1, &fontCardSub, RectF(satBarX + satBarW + 14.0f, satBarY - 1.0f, rw - satBarW - 40.0f, 18.0f), &ellipsisFmt, &mutedBrush);
 
-        std::wstring wSync = std::wstring(tr(L"Tip: ", L"Consejo: ")) + GameCheck::utf8ToWide(an.fpsCapAdvice);
-        RectF syncBox(satBarX + satBarW + 18.0f, curY + 30.0f, rw - satBarW - 40.0f, 36.0f);
-        g.DrawString(wSync.c_str(), -1, &fontCardSub, syncBox, &wrapFmt, &greenBrush);
-
-        curY += 86.0f;
+        curY += 108.0f;
 
         // 2. Clean Recommended Settings Grid
         RectF recCard(rx, curY, rw, 66.0f);
@@ -1543,10 +1638,15 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
         RectF drvTableCard(rx, curY, rw, tableH);
         DrawCyberPanel(g, drvTableCard, CyberPalette::PanelSurface, CyberPalette::BorderSubtle, CyberPalette::CyberYellow, 9.0f, true);
 
+        REAL colSetW = std::min(270.0f, std::max(210.0f, rw * 0.25f));
+        REAL colValX = colSetW + 24.0f;
+        REAL colValW = std::min(250.0f, std::max(185.0f, rw * 0.23f));
+        REAL colWhyX = colValX + colValW + 14.0f;
+
         g.DrawString(tr(L"Recommended Driver Toggles", L"Ajustes Recomendados del Driver"), -1, &fontCardHdr, PointF(rx + 14.0f, curY + 10.0f), &yellowBrush);
         g.DrawString(tr(L"Setting", L"Opci\x00F3n"), -1, &fontCardHdr, PointF(rx + 14.0f, curY + 32.0f), &mutedBrush);
-        g.DrawString(tr(L"Recommended Value", L"Valor Recomendado"), -1, &fontCardHdr, PointF(rx + 230.0f, curY + 32.0f), &mutedBrush);
-        g.DrawString(tr(L"Why It Helps", L"Por Qu\x00E9 Ayuda"), -1, &fontCardHdr, PointF(rx + 420.0f, curY + 32.0f), &mutedBrush);
+        g.DrawString(tr(L"Recommended Value", L"Valor Recomendado"), -1, &fontCardHdr, PointF(rx + colValX, curY + 32.0f), &mutedBrush);
+        g.DrawString(tr(L"Why It Helps", L"Por Qu\x00E9 Ayuda"), -1, &fontCardHdr, PointF(rx + colWhyX, curY + 32.0f), &mutedBrush);
 
         Pen divPen(CyberPalette::BorderSubtle, 1.0f);
         g.DrawLine(&divPen, rx + 12.0f, curY + 50.0f, rx + rw - 12.0f, curY + 50.0f);
@@ -1571,9 +1671,9 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
             std::wstring wReason = GameCheck::utf8ToWide(rec.reason);
 
             REAL textY = sy + (rowH - 18.0f) * 0.5f;
-            g.DrawString(wSet.c_str(), -1, &fontTableBold, RectF(rx + 14.0f, textY, 208.0f, rowH), &ellipsisFmt, &whiteBrush);
-            g.DrawString(wVal.c_str(), -1, &fontTableBold, RectF(rx + 230.0f, textY, 182.0f, rowH), &ellipsisFmt, &yellowBrush);
-            g.DrawString(wReason.c_str(), -1, &fontTable, RectF(rx + 420.0f, sy + 3.0f, rw - 434.0f, rowH - 4.0f), &wrapFmt, &mutedBrush);
+            g.DrawString(wSet.c_str(), -1, &fontTableBold, RectF(rx + 14.0f, textY, colSetW, rowH), &ellipsisFmt, &whiteBrush);
+            g.DrawString(wVal.c_str(), -1, &fontTableBold, RectF(rx + colValX, textY, colValW, rowH), &ellipsisFmt, &yellowBrush);
+            g.DrawString(wReason.c_str(), -1, &fontTable, RectF(rx + colWhyX, sy + 3.0f, std::max(120.0f, rw - colWhyX - 14.0f), rowH - 4.0f), &wrapFmt, &mutedBrush);
         }
     }
     // =========================================================================
@@ -2603,8 +2703,8 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             g_app.hFontTitle = CreateFontW(-15, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                                            OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                            DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-            g_app.hBrushDarkEdit = CreateSolidBrush(RGB(18, 18, 30));
-            g_app.hBrushDlgBg = CreateSolidBrush(RGB(12, 12, 20));
+            g_app.hBrushDarkEdit = CreateSolidBrush(RGB(26, 32, 44));
+            g_app.hBrushDlgBg = CreateSolidBrush(RGB(16, 20, 28));
             g_app.hListImg = nullptr;
 
             auto makeCyberBtn = [&](const wchar_t* text, int id) -> HWND {
@@ -2616,35 +2716,47 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 return b;
             };
 
+            // Native Hover Tooltip Control (plain-language explanations for settings & buttons)
+            g_app.hwndTooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+                                                WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+                                                CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                                                hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+            if (g_app.hwndTooltip) {
+                SendMessageW(g_app.hwndTooltip, TTM_SETMAXTIPWIDTH, 0, 340);
+                SendMessageW(g_app.hwndTooltip, TTM_SETDELAYTIME, TTDT_INITIAL, 350);
+                SendMessageW(g_app.hwndTooltip, TTM_SETDELAYTIME, TTDT_AUTOPOP, 9000);
+            }
+
             // Language Selector Combo in Top Header
             g_app.hwndLang = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-                                             0, 0, 114, 120, hwnd, reinterpret_cast<HMENU>(IDC_COMBO_LANG),
+                                             0, 0, 134, 120, hwnd, reinterpret_cast<HMENU>(IDC_COMBO_LANG),
                                              GetModuleHandleW(nullptr), nullptr);
             SendMessageW(g_app.hwndLang, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.hFontUiBold), TRUE);
             SendMessageW(g_app.hwndLang, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"EN | English"));
             SendMessageW(g_app.hwndLang, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"ES | Espa\x00F1ol"));
             SendMessageW(g_app.hwndLang, CB_SETCURSEL, g_app.isSpanish ? 1 : 0, 0);
 
-            // Top Action Bar Buttons
+            // Decluttered Top Header Actions (Tools menu + Primary Rescan)
             g_app.btnRescan     = makeCyberBtn(L"Rescan PC", IDC_BTN_RESCAN);
-            g_app.btnWhatIf     = makeCyberBtn(L"Upgrade Simulator", IDC_BTN_WHATIF);
-            g_app.btnParseSteam = makeCyberBtn(L"Paste Steam Specs", IDC_BTN_PARSE_STEAM);
-            g_app.btnDealsTop   = makeCyberBtn(L"Find Component Deals", IDC_BTN_DEALS_TOP);
-            g_app.btnDriverCfg  = makeCyberBtn(L"Driver App Settings", IDC_BTN_DRIVER_CFG);
-            g_app.btnPatchInfo  = makeCyberBtn(L"Updates & Info", IDC_BTN_PATCH_INFO);
+            g_app.btnTools      = makeCyberBtn(L"Tools \x25BE", IDC_BTN_TOOLS);
+            // Inline Hardware Strip Action
+            g_app.btnWhatIf     = makeCyberBtn(L"Simulate Upgrade", IDC_BTN_WHATIF);
+            // Left Sidebar Bottom Action ("+ Add Custom Game")
+            g_app.btnParseSteam = makeCyberBtn(L"+ Add Custom Game (Steam Specs)", IDC_BTN_PARSE_STEAM);
 
             // Search Box & Filter Combo
             g_app.hwndSearch = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
                                                0, 0, 180, 28, hwnd, reinterpret_cast<HMENU>(IDC_EDIT_SEARCH),
                                                GetModuleHandleW(nullptr), nullptr);
             SendMessageW(g_app.hwndSearch, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.hFontUi), TRUE);
-            SendMessageW(g_app.hwndSearch, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"Search 50+ games, genres, engines..."));
+            SendMessageW(g_app.hwndSearch, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"Search games, genres, engines..."));
 
             g_app.hwndFilter = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-                                               0, 0, 180, 200, hwnd, reinterpret_cast<HMENU>(IDC_COMBO_FILTER),
+                                               0, 0, 205, 220, hwnd, reinterpret_cast<HMENU>(IDC_COMBO_FILTER),
                                                GetModuleHandleW(nullptr), nullptr);
             SendMessageW(g_app.hwndFilter, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.hFontUi), TRUE);
-            SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"All 50+ Games"));
+            SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Installed Games"));
+            SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"All Games (Installed First)"));
             SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Ultra / Recommended"));
             SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Competitive / High FPS"));
             SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Story / AAA"));
@@ -2657,8 +2769,8 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                                              GetModuleHandleW(nullptr), nullptr);
             SendMessageW(g_app.hwndList, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.hFontUi), TRUE);
             ListView_SetExtendedListViewStyle(g_app.hwndList, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
-            ListView_SetBkColor(g_app.hwndList, RGB(8, 8, 14));
-            ListView_SetTextBkColor(g_app.hwndList, RGB(8, 8, 14));
+            ListView_SetBkColor(g_app.hwndList, RGB(18, 23, 31));
+            ListView_SetTextBkColor(g_app.hwndList, RGB(18, 23, 31));
             ListView_SetTextColor(g_app.hwndList, RGB(236, 240, 248));
 
             const wchar_t* cols[3] = { L"Game", L"Status", L"Est. FPS" };
@@ -2711,12 +2823,15 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             }
             ShowWindow(g_app.hwndDetailList, SW_HIDE);
 
-            // Bottom Action Buttons
-            g_app.btnSaveIni     = makeCyberBtn(L"Save .INI", IDC_BTN_SAVE_INI);
-            g_app.btnSaveJson    = makeCyberBtn(L"Save .JSON", IDC_BTN_SAVE_JSON);
-            g_app.btnSaveMd      = makeCyberBtn(L"Save Guide (.MD)", IDC_BTN_SAVE_MD);
-            g_app.btnCopySummary = makeCyberBtn(L"Copy Summary", IDC_BTN_COPY_SUMMARY);
+            // Simplified Bottom Action Buttons (Primary Copy + Export menu + Contextual Open Folder / Upgrade Deals)
+            g_app.btnCopySummary = makeCyberBtn(L"Copy Settings", IDC_BTN_COPY_SUMMARY);
+            g_app.btnExport      = makeCyberBtn(L"Export \x25BE", IDC_BTN_EXPORT);
+            g_app.btnOpenFolder  = makeCyberBtn(L"Open Game Folder", IDC_BTN_OPEN_FOLDER);
+            g_app.btnFindDeals   = makeCyberBtn(L"Find Upgrade Deals", IDC_BTN_FIND_DEALS);
+            ShowWindow(g_app.btnOpenFolder, SW_HIDE);
+            ShowWindow(g_app.btnFindDeals, SW_HIDE);
 
+            refreshTooltips();
             layoutChildControls(hwnd);
             return 0;
         }
@@ -2745,8 +2860,8 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         case WM_CTLCOLOREDIT:
         case WM_CTLCOLORLISTBOX: {
             HDC hdcCtrl = reinterpret_cast<HDC>(wParam);
-            SetTextColor(hdcCtrl, RGB(252, 238, 9));
-            SetBkColor(hdcCtrl, RGB(18, 18, 30));
+            SetTextColor(hdcCtrl, RGB(241, 245, 249));
+            SetBkColor(hdcCtrl, RGB(26, 32, 44));
             return reinterpret_cast<LRESULT>(g_app.hBrushDarkEdit);
         }
 
@@ -2774,6 +2889,66 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 case IDC_BTN_RESCAN:
                     refreshHardwareAndGames();
                     break;
+
+                case IDC_BTN_TOOLS: {
+                    if (g_app.btnTools) {
+                        HMENU hMenu = CreatePopupMenu();
+                        if (hMenu) {
+                            AppendMenuW(hMenu, MF_STRING, IDC_BTN_WHATIF,
+                                        tr(L"Upgrade Simulator (What-If)...", L"Simulador de Mejoras..."));
+                            AppendMenuW(hMenu, MF_STRING, IDC_BTN_DEALS_TOP,
+                                        tr(L"Find Component Deals...", L"Buscar Precios de Componentes..."));
+                            AppendMenuW(hMenu, MF_STRING, IDC_BTN_PARSE_STEAM,
+                                        tr(L"Add Custom Game (Paste Steam Specs)...", L"Agregar Juego (Pegar Req. Steam)..."));
+                            AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+                            AppendMenuW(hMenu, MF_STRING, IDC_BTN_PATCH_INFO,
+                                        tr(L"Updates && App Info...", L"Actualizaciones e Info..."));
+
+                            RECT btnRc = {};
+                            GetWindowRect(g_app.btnTools, &btnRc);
+                            TrackPopupMenu(hMenu, TPM_RIGHTALIGN | TPM_TOPALIGN | TPM_LEFTBUTTON,
+                                           btnRc.right, btnRc.bottom + 2, 0, hwnd, nullptr);
+                            DestroyMenu(hMenu);
+                        }
+                    }
+                    break;
+                }
+
+                case IDC_BTN_EXPORT: {
+                    if (g_app.btnExport) {
+                        HMENU hMenu = CreatePopupMenu();
+                        if (hMenu) {
+                            AppendMenuW(hMenu, MF_STRING, IDC_BTN_SAVE_INI,
+                                        tr(L"Save Config File (.INI)", L"Guardar Configuraci\x00F3n (.INI)"));
+                            AppendMenuW(hMenu, MF_STRING, IDC_BTN_SAVE_JSON,
+                                        tr(L"Save Technical Report (.JSON)", L"Guardar Reporte T\x00E9cnico (.JSON)"));
+                            AppendMenuW(hMenu, MF_STRING, IDC_BTN_SAVE_MD,
+                                        tr(L"Save Full Optimization Guide (.MD)", L"Guardar Gu\x00EDa Completa (.MD)"));
+                            AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+                            AppendMenuW(hMenu, MF_STRING, IDC_BTN_SAVE_DRV_MD,
+                                        tr(L"Save GPU Driver Guide (.MD)", L"Guardar Gu\x00EDa de Drivers (.MD)"));
+
+                            RECT btnRc = {};
+                            GetWindowRect(g_app.btnExport, &btnRc);
+                            TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_LEFTBUTTON,
+                                           btnRc.left, btnRc.top - 2, 0, hwnd, nullptr);
+                            DestroyMenu(hMenu);
+                        }
+                    }
+                    break;
+                }
+
+                case IDC_BTN_OPEN_FOLDER: {
+                    if (!g_app.allGames.empty() && g_app.selectedGameIdx >= 0 &&
+                        g_app.selectedGameIdx < static_cast<int>(g_app.allGames.size())) {
+                        const auto& gm = g_app.allGames[g_app.selectedGameIdx];
+                        if (!gm.installDir.empty()) {
+                            std::wstring wDir = GameCheck::utf8ToWide(gm.installDir);
+                            ShellExecuteW(hwnd, L"open", wDir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                        }
+                    }
+                    break;
+                }
 
                 case IDC_BTN_WHATIF:
                     showSimulatorDialog(hwnd);
@@ -2881,15 +3056,15 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 LPNMLVCUSTOMDRAW lvcd = reinterpret_cast<LPNMLVCUSTOMDRAW>(lParam);
                 if (lvcd->nmcd.dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
                 if (lvcd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT) {
-                    lvcd->clrText = RGB(236, 240, 248);
-                    lvcd->clrTextBk = (lvcd->nmcd.dwItemSpec % 2 == 0) ? RGB(8, 8, 14) : RGB(14, 14, 24);
+                    lvcd->clrText = RGB(241, 245, 249);
+                    lvcd->clrTextBk = (lvcd->nmcd.dwItemSpec % 2 == 0) ? RGB(18, 23, 31) : RGB(23, 29, 39);
                     return CDRF_NOTIFYSUBITEMDRAW;
                 }
                 if (lvcd->nmcd.dwDrawStage == (CDDS_SUBITEM | CDDS_ITEMPREPAINT)) {
-                    if (lvcd->iSubItem == 1) lvcd->clrText = RGB(0, 240, 255);
-                    else if (lvcd->iSubItem == 2) lvcd->clrText = RGB(0, 255, 102);
-                    else if (lvcd->iSubItem == 3) lvcd->clrText = RGB(252, 238, 9);
-                    else if (lvcd->iSubItem == 4) lvcd->clrText = RGB(148, 160, 180);
+                    if (lvcd->iSubItem == 1) lvcd->clrText = RGB(56, 189, 248);
+                    else if (lvcd->iSubItem == 2) lvcd->clrText = RGB(16, 185, 129);
+                    else if (lvcd->iSubItem == 3) lvcd->clrText = RGB(245, 158, 11);
+                    else if (lvcd->iSubItem == 4) lvcd->clrText = RGB(148, 163, 184);
                     return CDRF_NEWFONT;
                 }
             }
@@ -2914,19 +3089,15 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                         int idx = static_cast<int>(lvcd->nmcd.lItemlParam);
                         bool isSel = (ListView_GetItemState(g_app.hwndList, static_cast<int>(lvcd->nmcd.dwItemSpec), LVIS_SELECTED) & LVIS_SELECTED) != 0;
                         if (isSel) {
-                            lvcd->clrText = RGB(252, 238, 9);
-                            lvcd->clrTextBk = RGB(26, 24, 12);
+                            lvcd->clrText = RGB(248, 250, 252);
+                            lvcd->clrTextBk = RGB(31, 46, 72);
                         } else if (idx >= 0 && idx < static_cast<int>(g_app.allGames.size())) {
                             const auto& gm = g_app.allGames[idx];
-                            if (gm.playStatus == "PLAYING_NOW") {
-                                lvcd->clrText = RGB(0, 255, 102);
-                                lvcd->clrTextBk = RGB(8, 24, 16);
-                            } else if (gm.installed) {
-                                lvcd->clrText = RGB(0, 240, 255);
-                                lvcd->clrTextBk = RGB(10, 18, 28);
+                            lvcd->clrText = RGB(236, 242, 248);
+                            if (gm.installed) {
+                                lvcd->clrTextBk = (lvcd->nmcd.dwItemSpec % 2 == 0) ? RGB(20, 28, 36) : RGB(24, 33, 43);
                             } else {
-                                lvcd->clrText = RGB(236, 240, 248);
-                                lvcd->clrTextBk = (lvcd->nmcd.dwItemSpec % 2 == 0) ? RGB(8, 8, 14) : RGB(13, 13, 22);
+                                lvcd->clrTextBk = (lvcd->nmcd.dwItemSpec % 2 == 0) ? RGB(18, 23, 31) : RGB(22, 27, 36);
                             }
                         }
                         return CDRF_NOTIFYSUBITEMDRAW;
@@ -2934,12 +3105,18 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     if (lvcd->nmcd.dwDrawStage == (CDDS_SUBITEM | CDDS_ITEMPREPAINT)) {
                         int idx = static_cast<int>(lvcd->nmcd.lItemlParam);
                         bool isSel = (ListView_GetItemState(g_app.hwndList, static_cast<int>(lvcd->nmcd.dwItemSpec), LVIS_SELECTED) & LVIS_SELECTED) != 0;
-                        if (!isSel && lvcd->iSubItem == 2 && idx >= 0 && idx < static_cast<int>(g_app.allGames.size())) {
+                        if (!isSel && idx >= 0 && idx < static_cast<int>(g_app.allGames.size())) {
                             const auto& gm = g_app.allGames[idx];
-                            auto ga = GameCheck::analyzeGame(g_app.activeSpecs, gm, g_app.activeOptMode);
-                            Color vc = verdictColor(ga.verdictBadge);
-                            lvcd->clrText = RGB(vc.GetR(), vc.GetG(), vc.GetB());
-                            return CDRF_NEWFONT;
+                            if (lvcd->iSubItem == 1) {
+                                lvcd->clrText = gm.installed ? RGB(52, 211, 153) : RGB(148, 163, 184);
+                                return CDRF_NEWFONT;
+                            }
+                            if (lvcd->iSubItem == 2) {
+                                auto ga = GameCheck::analyzeGame(g_app.activeSpecs, gm, g_app.activeOptMode);
+                                Color vc = verdictColor(ga.verdictBadge);
+                                lvcd->clrText = RGB(vc.GetR(), vc.GetG(), vc.GetB());
+                                return CDRF_NEWFONT;
+                            }
                         }
                     }
                 }
@@ -2979,7 +3156,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             if (wParam == AppState::TIMER_COPY_CONFIRM) {
                 KillTimer(hwnd, AppState::TIMER_COPY_CONFIRM);
                 if (g_app.btnCopySummary) {
-                    SetWindowTextW(g_app.btnCopySummary, tr(L"Copy Summary", L"Copiar Resumen"));
+                    SetWindowTextW(g_app.btnCopySummary, tr(L"Copy Settings", L"Copiar Ajustes"));
                 }
                 return 0;
             }

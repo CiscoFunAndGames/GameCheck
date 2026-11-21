@@ -2115,9 +2115,270 @@ inline std::string makeMonogram(const std::string& title) {
 }
 
 inline std::vector<GameSpec> scanInstalledGames() {
-    // Strictly Non-Invasive Zero-Library-Access Mode:
-    // Never reads Steam libraryfolders.vdf, appmanifest_*.acf, Epic manifests, or running processes.
-    return {};
+    namespace fs = std::filesystem;
+    std::vector<GameSpec> catalog = getCatalogGames();
+    std::vector<GameSpec> results;
+    std::set<std::string> seenKeys;
+
+    std::vector<fs::path> steamAppsDirs;
+    std::set<std::string> seenSteamDirs;
+
+    auto addSteamAppsDir = [&](const fs::path& dir) {
+        std::error_code ec;
+        if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) return;
+        fs::path canon = fs::weakly_canonical(dir, ec);
+        std::string key = toLower((ec ? dir : canon).string());
+        if (seenSteamDirs.count(key)) return;
+        seenSteamDirs.insert(key);
+        steamAppsDirs.push_back(ec ? dir : canon);
+
+        fs::path vdf = (ec ? dir : canon) / "libraryfolders.vdf";
+        if (fs::exists(vdf, ec)) {
+            std::vector<std::string> extraPaths;
+            parseAcfKeyValues(readFileText(vdf), &extraPaths);
+            for (const auto& ep : extraPaths) {
+                fs::path candidate = fs::path(ep) / "steamapps";
+                if (fs::exists(candidate, ec) && fs::is_directory(candidate, ec)) {
+                    fs::path cCanon = fs::weakly_canonical(candidate, ec);
+                    std::string cKey = toLower((ec ? candidate : cCanon).string());
+                    if (!seenSteamDirs.count(cKey)) {
+                        seenSteamDirs.insert(cKey);
+                        steamAppsDirs.push_back(ec ? candidate : cCanon);
+                    }
+                }
+            }
+        }
+    };
+
+#ifdef _WIN32
+    // 0. Check Windows Registry for Steam install path (read-only)
+    auto checkRegSteamPath = [&](HKEY rootKey, const char* subKey, const char* valName) {
+        HKEY hKey = nullptr;
+        if (RegOpenKeyExA(rootKey, subKey, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+            char buf[MAX_PATH * 2] = {};
+            DWORD sz = sizeof(buf) - 1;
+            DWORD type = 0;
+            if (RegQueryValueExA(hKey, valName, nullptr, &type, reinterpret_cast<LPBYTE>(buf), &sz) == ERROR_SUCCESS &&
+                (type == REG_SZ || type == REG_EXPAND_SZ) && buf[0] != '\0') {
+                std::string p(buf);
+                addSteamAppsDir(fs::path(p) / "steamapps");
+            }
+            RegCloseKey(hKey);
+        }
+    };
+    checkRegSteamPath(HKEY_CURRENT_USER,  "Software\\Valve\\Steam", "SteamPath");
+    checkRegSteamPath(HKEY_LOCAL_MACHINE, "SOFTWARE\\WOW6432Node\\Valve\\Steam", "InstallPath");
+    checkRegSteamPath(HKEY_LOCAL_MACHINE, "SOFTWARE\\Valve\\Steam", "InstallPath");
+
+    const char* relSteamPaths[] = {
+        "Program Files (x86)\\Steam\\steamapps",
+        "Program Files\\Steam\\steamapps",
+        "Steam\\steamapps",
+        "SteamLibrary\\steamapps",
+        "Games\\Steam\\steamapps",
+        "Games\\SteamLibrary\\steamapps"
+    };
+    for (char d = 'C'; d <= 'Z'; ++d) {
+        std::string root = std::string(1, d) + ":\\";
+        if (GetDriveTypeA(root.c_str()) != DRIVE_FIXED) continue;
+        for (const char* rel : relSteamPaths) {
+            addSteamAppsDir(fs::path(root + rel));
+        }
+    }
+#else
+    const char* homeEnv = std::getenv("HOME");
+    if (homeEnv) {
+        fs::path home(homeEnv);
+        addSteamAppsDir(home / ".steam/steam/steamapps");
+        addSteamAppsDir(home / ".local/share/Steam/steamapps");
+        addSteamAppsDir(home / ".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps");
+    }
+#endif
+
+    auto makeInstalledGame = [&](const std::string& name, const std::string& appId,
+                                 const std::string& launcher, const std::string& installPathStr,
+                                 double sizeGB, uint64_t lastPlayed) {
+        std::string driveStr = installPathStr.size() >= 2 && installPathStr[1] == ':' ? installPathStr.substr(0, 2) : "/";
+        const GameSpec* matched = findMatchingCatalogGame(appId, name, catalog);
+        GameSpec g;
+        if (matched) {
+            g = *matched;
+            g.matchedCatalogId = matched->id;
+        } else {
+            g.id = slugify(name);
+            g.title = name;
+            g.genre = "PC Game";
+            g.engine = launcher + " Installed Title";
+            g.releaseYear = 2024;
+            g.steamAppId = appId;
+            g.monogram = makeMonogram(name);
+            g.minCpu = "Intel Core i5-8400 or AMD Ryzen 5 1600";
+            g.minGpu = "NVIDIA GeForce GTX 1060 6GB or AMD Radeon RX 580 8GB";
+            g.minCpuScore = scoreCPU(g.minCpu).score;
+            g.minGpuScore = scoreGPU(g.minGpu, 6).score;
+            g.minRamGB = 8;
+            g.minVramGB = 4;
+            g.recCpu = "Intel Core i5-12400 or AMD Ryzen 5 5600";
+            g.recGpu = "NVIDIA GeForce RTX 3060 or AMD Radeon RX 6600 XT";
+            g.recCpuScore = scoreCPU(g.recCpu).score;
+            g.recGpuScore = scoreGPU(g.recGpu, 8).score;
+            g.recRamGB = 16;
+            g.recVramGB = 8;
+            g.storageGB = static_cast<int>(std::round(sizeGB));
+            g.ssdRequired = sizeGB >= 40.0;
+            g.supportsRT = sizeGB >= 70.0;
+            g.upscalers = { "DLSS", "FSR" };
+            g.baseRecFps = 75;
+            g.tuningTips = {
+                "Installed on " + driveStr + " (" + std::to_string(static_cast<int>(std::round(sizeGB))) + " GB via " + launcher + ").",
+                "Lower Shadow Quality and Volumetric Effects one step below Ultra for +15-20% FPS."
+            };
+        }
+
+        g.installed = true;
+        g.launcher = launcher;
+        g.installDir = installPathStr;
+        g.drive = driveStr;
+        g.sizeOnDiskGB = sizeGB;
+        g.lastPlayedTimestamp = lastPlayed;
+        if (!appId.empty()) g.steamAppId = appId;
+
+        g.isRunning = false;
+        g.wasRecentlyPlayed = (lastPlayed > 0);
+        if (g.wasRecentlyPlayed) {
+            g.playStatus = "RECENTLY_PLAYED";
+            g.playStatusLabel = "RECENTLY PLAYED";
+        } else {
+            g.playStatus = "INSTALLED";
+            g.playStatusLabel = "INSTALLED";
+        }
+        return g;
+    };
+
+    // 1. Scan Steam appmanifest_*.acf (read-only)
+    for (const auto& saDir : steamAppsDirs) {
+        std::error_code ec;
+        for (const auto& entry : fs::directory_iterator(saDir, ec)) {
+            if (!entry.is_regular_file(ec)) continue;
+            std::string fname = entry.path().filename().string();
+            if (fname.rfind("appmanifest_", 0) != 0 || fname.find(".acf") == std::string::npos) continue;
+
+            auto kv = parseAcfKeyValues(readFileText(entry.path()));
+            std::string appId = kv["appid"];
+            std::string name = trim(kv["name"]);
+            if (name.empty() || isNonGameManifestName(name)) continue;
+            std::string dedup = "steam:" + (appId.empty() ? toLower(name) : appId);
+            if (seenKeys.count(dedup)) continue;
+            seenKeys.insert(dedup);
+
+            uint64_t sizeBytes = 0;
+            if (!kv["sizeondisk"].empty()) sizeBytes = std::strtoull(kv["sizeondisk"].c_str(), nullptr, 10);
+            double sizeGB = sizeBytes > 0
+                ? std::max(1.0, std::round((static_cast<double>(sizeBytes) / (1024.0 * 1024.0 * 1024.0)) * 10.0) / 10.0)
+                : 25.0;
+
+            uint64_t lastPlayed = 0;
+            if (!kv["lastplayed"].empty()) lastPlayed = std::strtoull(kv["lastplayed"].c_str(), nullptr, 10);
+            else if (!kv["lastupdated"].empty()) lastPlayed = std::strtoull(kv["lastupdated"].c_str(), nullptr, 10);
+
+            std::string installDirName = !kv["installdir"].empty() ? kv["installdir"] : name;
+            fs::path installPath = saDir / "common" / installDirName;
+            results.push_back(makeInstalledGame(name, appId, "Steam", installPath.string(), sizeGB, lastPlayed));
+        }
+    }
+
+#ifdef _WIN32
+    // 2. Scan Epic Games Launcher Manifests (read-only)
+    for (char d = 'C'; d <= 'Z'; ++d) {
+        std::string root = std::string(1, d) + ":\\";
+        if (GetDriveTypeA(root.c_str()) != DRIVE_FIXED) continue;
+        fs::path epicDir = fs::path(root) / "ProgramData\\Epic\\EpicGamesLauncher\\Data\\Manifests";
+        std::error_code ec;
+        if (!fs::exists(epicDir, ec) || !fs::is_directory(epicDir, ec)) continue;
+
+        for (const auto& entry : fs::directory_iterator(epicDir, ec)) {
+            if (!entry.is_regular_file(ec) || entry.path().extension() != ".item") continue;
+            std::string raw = readFileText(entry.path());
+            if (raw.find("\"bIsIncompleteInstall\": true") != std::string::npos ||
+                raw.find("\"bIsIncompleteInstall\":true") != std::string::npos) {
+                continue;
+            }
+            std::smatch mName, mLoc, mSize;
+            std::regex nameRe("\"DisplayName\"\\s*:\\s*\"([^\"]+)\"");
+            std::regex locRe("\"InstallLocation\"\\s*:\\s*\"([^\"]+)\"");
+            std::regex sizeRe("\"InstallSize\"\\s*:\\s*(\\d+)");
+            if (std::regex_search(raw, mName, nameRe)) {
+                std::string name = trim(mName[1].str());
+                if (name.empty() || isNonGameManifestName(name)) continue;
+                std::string dedup = "epic:" + toLower(name);
+                if (seenKeys.count(dedup)) continue;
+                seenKeys.insert(dedup);
+
+                std::string loc = std::regex_search(raw, mLoc, locRe) ? mLoc[1].str() : (root + "Games\\" + name);
+                double sizeGB = 30.0;
+                if (std::regex_search(raw, mSize, sizeRe)) {
+                    uint64_t sb = std::strtoull(mSize[1].str().c_str(), nullptr, 10);
+                    if (sb > 0) sizeGB = std::max(1.0, std::round((static_cast<double>(sb) / (1024.0 * 1024.0 * 1024.0)) * 10.0) / 10.0);
+                }
+                results.push_back(makeInstalledGame(name, "", "Epic Games", loc, sizeGB, 0));
+            }
+        }
+    }
+
+    // 3. Scan GOG Galaxy installed games from Windows Registry (read-only)
+    {
+        HKEY hGogRoot = nullptr;
+        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SOFTWARE\\WOW6432Node\\GOG.com\\Games", 0, KEY_READ, &hGogRoot) == ERROR_SUCCESS) {
+            char subName[256] = {};
+            DWORD idx = 0;
+            while (true) {
+                DWORD subLen = sizeof(subName);
+                if (RegEnumKeyExA(hGogRoot, idx++, subName, &subLen, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS) break;
+                HKEY hGame = nullptr;
+                if (RegOpenKeyExA(hGogRoot, subName, 0, KEY_READ, &hGame) == ERROR_SUCCESS) {
+                    char gName[256] = {}, gPath[MAX_PATH * 2] = {};
+                    DWORD szN = sizeof(gName) - 1, szP = sizeof(gPath) - 1;
+                    bool hasN = (RegQueryValueExA(hGame, "gameName", nullptr, nullptr, reinterpret_cast<LPBYTE>(gName), &szN) == ERROR_SUCCESS);
+                    bool hasP = (RegQueryValueExA(hGame, "path",     nullptr, nullptr, reinterpret_cast<LPBYTE>(gPath), &szP) == ERROR_SUCCESS);
+                    RegCloseKey(hGame);
+                    if (hasN && gName[0] != '\0') {
+                        std::string name = trim(gName);
+                        std::string dedup = "gog:" + toLower(name);
+                        if (!name.empty() && !isNonGameManifestName(name) && !seenKeys.count(dedup)) {
+                            std::error_code ec;
+                            if (!hasP || gPath[0] == '\0' || fs::exists(fs::path(gPath), ec)) {
+                                seenKeys.insert(dedup);
+                                results.push_back(makeInstalledGame(name, "", "GOG", hasP ? gPath : "", 25.0, 0));
+                            }
+                        }
+                    }
+                }
+            }
+            RegCloseKey(hGogRoot);
+        }
+    }
+
+    // 4. Scan Xbox / PC Game Pass XboxGames folders on fixed drives (read-only)
+    for (char d = 'C'; d <= 'Z'; ++d) {
+        std::string root = std::string(1, d) + ":\\";
+        if (GetDriveTypeA(root.c_str()) != DRIVE_FIXED) continue;
+        fs::path xboxDir = fs::path(root) / "XboxGames";
+        std::error_code ec;
+        if (!fs::exists(xboxDir, ec) || !fs::is_directory(xboxDir, ec)) continue;
+        for (const auto& entry : fs::directory_iterator(xboxDir, ec)) {
+            if (!entry.is_directory(ec)) continue;
+            if (!fs::exists(entry.path() / "Content", ec)) continue;
+            std::string name = trim(entry.path().filename().string());
+            if (name.empty() || isNonGameManifestName(name)) continue;
+            std::string dedup = "xbox:" + toLower(name);
+            if (seenKeys.count(dedup)) continue;
+            seenKeys.insert(dedup);
+            results.push_back(makeInstalledGame(name, "", "Xbox App", entry.path().string(), 35.0, 0));
+        }
+    }
+#endif
+
+    return results;
 }
 
 inline int getPlayStatusSortRank(const GameSpec& g) {
@@ -2127,37 +2388,69 @@ inline int getPlayStatusSortRank(const GameSpec& g) {
     return 0;
 }
 
-inline std::vector<GameSpec> getMergedGameList(const std::vector<GameSpec>& customGames) {
+inline std::vector<GameSpec> getMergedGameList(const std::vector<GameSpec>& installedGames) {
     std::vector<GameSpec> catalog = getCatalogGames();
+    std::map<std::string, GameSpec> installedByCatalogId;
+    std::vector<GameSpec> extraInstalled;
+
+    for (const auto& inst : installedGames) {
+        if (!inst.matchedCatalogId.empty()) {
+            installedByCatalogId[inst.matchedCatalogId] = inst;
+        } else {
+            const GameSpec* matched = findMatchingCatalogGame(inst.steamAppId, inst.title, catalog);
+            if (matched) {
+                installedByCatalogId[matched->id] = inst;
+            } else {
+                extraInstalled.push_back(inst);
+            }
+        }
+    }
+
     std::vector<GameSpec> merged;
-    merged.reserve(catalog.size() + customGames.size());
+    merged.reserve(catalog.size() + extraInstalled.size());
 
     for (auto g : catalog) {
-        g.installed = false;
-        g.isRunning = false;
-        g.wasRecentlyPlayed = false;
-        g.playStatus = "CATALOG";
-        g.playStatusLabel = "CATALOG";
+        auto it = installedByCatalogId.find(g.id);
+        if (it != installedByCatalogId.end()) {
+            const GameSpec& inst = it->second;
+            g.installed = true;
+            g.launcher = inst.launcher;
+            g.installDir = inst.installDir;
+            g.drive = inst.drive;
+            g.sizeOnDiskGB = inst.sizeOnDiskGB;
+            g.lastPlayedTimestamp = inst.lastPlayedTimestamp;
+            g.isRunning = false;
+            g.wasRecentlyPlayed = inst.wasRecentlyPlayed;
+            g.playStatus = g.wasRecentlyPlayed ? "RECENTLY_PLAYED" : "INSTALLED";
+            g.playStatusLabel = g.wasRecentlyPlayed ? "RECENTLY PLAYED" : "INSTALLED";
+        } else {
+            g.installed = false;
+            g.isRunning = false;
+            g.wasRecentlyPlayed = false;
+            g.playStatus = "CATALOG";
+            g.playStatusLabel = "CATALOG";
+        }
         merged.push_back(std::move(g));
     }
 
-    for (auto custom : customGames) {
-        const GameSpec* matched = findMatchingCatalogGame(custom.steamAppId, custom.title, catalog);
-        if (!matched) {
-            custom.installed = false;
-            custom.isRunning = false;
-            custom.wasRecentlyPlayed = false;
-            if (custom.playStatus.empty()) custom.playStatus = "CATALOG";
-            if (custom.playStatusLabel.empty()) custom.playStatusLabel = "CATALOG";
-            merged.push_back(std::move(custom));
-        }
+    for (const auto& ext : extraInstalled) {
+        merged.push_back(ext);
     }
+
+    // Sort installed / recently played games to the very top of the list
+    std::stable_sort(merged.begin(), merged.end(), [](const GameSpec& a, const GameSpec& b) {
+        int rankA = getPlayStatusSortRank(a);
+        int rankB = getPlayStatusSortRank(b);
+        if (rankA != rankB) return rankA > rankB;
+        if (a.lastPlayedTimestamp != b.lastPlayedTimestamp) return a.lastPlayedTimestamp > b.lastPlayedTimestamp;
+        return false;
+    });
 
     return merged;
 }
 
 inline std::vector<GameSpec> getMergedGameList() {
-    return getMergedGameList(std::vector<GameSpec>{});
+    return getMergedGameList(scanInstalledGames());
 }
 
 // =============================================================================
