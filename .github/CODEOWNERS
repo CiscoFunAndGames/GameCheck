@@ -1,7 +1,8 @@
 # GameCheck Code Owners
-# Only the repository owner/admin may approve changes to CI/CD pipelines,
-# security/antivirus/performance scanners, installer scripts, and security policies.
+# Require repository owner approval for all PRs into protected branches (dev / main),
+# including CI/CD pipelines, security/antivirus/performance scanners, and policies.
 
+*                                 @FranciscoFlorio25
 /.github/                         @FranciscoFlorio25
 /scripts/security-policy-scan.js  @FranciscoFlorio25
 /scripts/perf-gate.js             @FranciscoFlorio25
