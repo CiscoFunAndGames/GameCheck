@@ -623,6 +623,7 @@ static void updateTabVisibility() {
 }
 
 static void populateGameListView();
+static void layoutChildControls(HWND hwnd);
 
 static void applyLanguageToUi() {
     if (g_app.hwndMain) {
@@ -650,10 +651,12 @@ static void applyLanguageToUi() {
         int curSel = static_cast<int>(SendMessageW(g_app.hwndFilter, CB_GETCURSEL, 0, 0));
         if (curSel < 0) curSel = 0;
         SendMessageW(g_app.hwndFilter, CB_RESETCONTENT, 0, 0);
-        SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"All 50+ Games", L"Todos (50+ Juegos)")));
+        SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"Installed Games", L"Juegos Instalados")));
+        SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"All Games (Installed First)", L"Todos (Instalados Primero)")));
         SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"Ultra / Recommended", L"Ultra / Recomendado")));
         SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"Competitive / High FPS", L"Competitivo / Altos FPS")));
         SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(L"Story / AAA", L"Historia / AAA")));
+        if (curSel > 4) curSel = 0;
         SendMessageW(g_app.hwndFilter, CB_SETCURSEL, curSel, 0);
     }
 
@@ -684,6 +687,7 @@ static void applyLanguageToUi() {
 
     populateGameListView();
     if (g_app.hwndMain) {
+        layoutChildControls(g_app.hwndMain);
         InvalidateRect(g_app.hwndMain, nullptr, TRUE);
     }
 }
@@ -701,6 +705,22 @@ static void populateGameListView() {
     if (g_app.hwndFilter) {
         filterMode = static_cast<int>(SendMessageW(g_app.hwndFilter, CB_GETCURSEL, 0, 0));
         if (filterMode < 0) filterMode = 0;
+    }
+
+    // Check if any installed games exist; if 0 installed games on a clean machine and filter is "Installed Games",
+    // gracefully fall back to "All Games (Installed First)" so the list is never empty on first launch.
+    bool hasAnyInstalled = false;
+    for (const auto& g : g_app.allGames) {
+        if (g.installed) {
+            hasAnyInstalled = true;
+            break;
+        }
+    }
+    if (filterMode == 0 && !hasAnyInstalled && query.empty()) {
+        filterMode = 1;
+        if (g_app.hwndFilter) {
+            SendMessageW(g_app.hwndFilter, CB_SETCURSEL, 1, 0);
+        }
     }
 
     SendMessageW(g_app.hwndList, WM_SETREDRAW, FALSE, 0);
@@ -728,11 +748,15 @@ static void populateGameListView() {
             GameCheck::containsIgnoreCase(game.genre, "MOBA") ||
             GameCheck::containsIgnoreCase(game.genre, "Hero Shooter") ||
             GameCheck::containsIgnoreCase(game.genre, "Esports");
-        if (filterMode == 1) {
-            if (!ga.canRunRecommended) continue;
+        if (filterMode == 0) {
+            // Installed Games only (also keep custom parsed game if user just pasted Steam reqs)
+            bool isCustom = g_app.hasCustomParsedGame && (i == 0);
+            if (!game.installed && !isCustom) continue;
         } else if (filterMode == 2) {
-            if (!isCompetitive) continue;
+            if (!ga.canRunRecommended) continue;
         } else if (filterMode == 3) {
+            if (!isCompetitive) continue;
+        } else if (filterMode == 4) {
             if (isCompetitive) continue;
         }
 
@@ -797,37 +821,68 @@ static void layoutChildControls(HWND hwnd) {
     int topBarH = 136;
     int margin = 14;
 
-    // Language selector next to update pill in header
+    // Language selector next to update pill in header (generous width so EN | English / ES | Español + arrow never clip)
+    int langX = 452;
+    int langW = 136;
     if (g_app.hwndLang) {
-        MoveWindow(g_app.hwndLang, 452, 9, 94, 120, TRUE);
+        MoveWindow(g_app.hwndLang, langX, 9, langW, 120, TRUE);
     }
 
-    // Top-right action buttons (6 clear, friendly buttons)
+    // Top-right action buttons (6 clear, friendly buttons — dynamically sized to text so zero labels truncate)
     int btnY = 10;
     int btnH = 28;
-    int rightX = w - margin;
-
-    auto placeTopBtn = [&](HWND hBtn, int bw) {
-        rightX -= bw;
-        if (hBtn) MoveWindow(hBtn, rightX, btnY, bw, btnH, TRUE);
-        rightX -= 6;
+    int btnGap = 8;
+    HWND topBtns[6] = {
+        g_app.btnPatchInfo,
+        g_app.btnDriverCfg,
+        g_app.btnDealsTop,
+        g_app.btnParseSteam,
+        g_app.btnWhatIf,
+        g_app.btnRescan
     };
+    int naturalW[6] = { 124, 152, 168, 146, 146, 106 };
 
-    placeTopBtn(g_app.btnPatchInfo, 108);
-    placeTopBtn(g_app.btnDriverCfg, 122);
-    placeTopBtn(g_app.btnDealsTop, 134);
-    placeTopBtn(g_app.btnParseSteam, 128);
-    placeTopBtn(g_app.btnWhatIf, 124);
-    placeTopBtn(g_app.btnRescan, 96);
+    HDC hdcMeasure = GetDC(hwnd);
+    if (hdcMeasure) {
+        HFONT hOldFont = reinterpret_cast<HFONT>(SelectObject(hdcMeasure, g_app.hFontUiBold ? g_app.hFontUiBold : g_app.hFontUi));
+        for (int i = 0; i < 6; ++i) {
+            if (!topBtns[i]) continue;
+            wchar_t txt[128] = {};
+            int len = GetWindowTextW(topBtns[i], txt, 127);
+            if (len > 0) {
+                SIZE sz = {};
+                if (GetTextExtentPoint32W(hdcMeasure, txt, len, &sz)) {
+                    naturalW[i] = std::max(100, static_cast<int>(sz.cx) + 28);
+                }
+            }
+        }
+        SelectObject(hdcMeasure, hOldFont);
+        ReleaseDC(hwnd, hdcMeasure);
+    }
+
+    int totalNaturalW = 0;
+    for (int i = 0; i < 6; ++i) totalNaturalW += naturalW[i];
+    int totalGaps = btnGap * 5;
+    int availTopBtnW = std::max(420, (w - margin) - (langX + langW + 14) - totalGaps);
+    double scale = (totalNaturalW > availTopBtnW) ? (static_cast<double>(availTopBtnW) / static_cast<double>(totalNaturalW)) : 1.0;
+
+    int rightX = w - margin;
+    for (int i = 0; i < 6; ++i) {
+        int bw = std::max(72, static_cast<int>(std::round(naturalW[i] * scale)));
+        rightX -= bw;
+        if (topBtns[i]) MoveWindow(topBtns[i], rightX, btnY, bw, btnH, TRUE);
+        rightX -= btnGap;
+    }
 
     // Left column (Search, Filter, Game List)
     int leftW = std::max(380, std::min(500, static_cast<int>(w * 0.36)));
     int contentY = topBarH + 10;
     int contentH = h - contentY - margin;
 
-    int searchW = leftW - 198;
+    int filterW = 205;
+    int searchW = std::max(120, leftW - filterW - 8);
     if (g_app.hwndSearch) MoveWindow(g_app.hwndSearch, margin, contentY, searchW, 28, TRUE);
-    if (g_app.hwndFilter) MoveWindow(g_app.hwndFilter, margin + searchW + 8, contentY, 190, 220, TRUE);
+    if (g_app.hwndFilter) MoveWindow(g_app.hwndFilter, margin + searchW + 8, contentY, filterW, 220, TRUE);
 
     int listY = contentY + 36;
     int listH = std::max(180, contentH - 36);
@@ -1543,10 +1598,15 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
         RectF drvTableCard(rx, curY, rw, tableH);
         DrawCyberPanel(g, drvTableCard, CyberPalette::PanelSurface, CyberPalette::BorderSubtle, CyberPalette::CyberYellow, 9.0f, true);
 
+        REAL colSetW = std::min(270.0f, std::max(210.0f, rw * 0.25f));
+        REAL colValX = colSetW + 24.0f;
+        REAL colValW = std::min(250.0f, std::max(185.0f, rw * 0.23f));
+        REAL colWhyX = colValX + colValW + 14.0f;
+
         g.DrawString(tr(L"Recommended Driver Toggles", L"Ajustes Recomendados del Driver"), -1, &fontCardHdr, PointF(rx + 14.0f, curY + 10.0f), &yellowBrush);
         g.DrawString(tr(L"Setting", L"Opci\x00F3n"), -1, &fontCardHdr, PointF(rx + 14.0f, curY + 32.0f), &mutedBrush);
-        g.DrawString(tr(L"Recommended Value", L"Valor Recomendado"), -1, &fontCardHdr, PointF(rx + 230.0f, curY + 32.0f), &mutedBrush);
-        g.DrawString(tr(L"Why It Helps", L"Por Qu\x00E9 Ayuda"), -1, &fontCardHdr, PointF(rx + 420.0f, curY + 32.0f), &mutedBrush);
+        g.DrawString(tr(L"Recommended Value", L"Valor Recomendado"), -1, &fontCardHdr, PointF(rx + colValX, curY + 32.0f), &mutedBrush);
+        g.DrawString(tr(L"Why It Helps", L"Por Qu\x00E9 Ayuda"), -1, &fontCardHdr, PointF(rx + colWhyX, curY + 32.0f), &mutedBrush);
 
         Pen divPen(CyberPalette::BorderSubtle, 1.0f);
         g.DrawLine(&divPen, rx + 12.0f, curY + 50.0f, rx + rw - 12.0f, curY + 50.0f);
@@ -1571,9 +1631,9 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
             std::wstring wReason = GameCheck::utf8ToWide(rec.reason);
 
             REAL textY = sy + (rowH - 18.0f) * 0.5f;
-            g.DrawString(wSet.c_str(), -1, &fontTableBold, RectF(rx + 14.0f, textY, 208.0f, rowH), &ellipsisFmt, &whiteBrush);
-            g.DrawString(wVal.c_str(), -1, &fontTableBold, RectF(rx + 230.0f, textY, 182.0f, rowH), &ellipsisFmt, &yellowBrush);
-            g.DrawString(wReason.c_str(), -1, &fontTable, RectF(rx + 420.0f, sy + 3.0f, rw - 434.0f, rowH - 4.0f), &wrapFmt, &mutedBrush);
+            g.DrawString(wSet.c_str(), -1, &fontTableBold, RectF(rx + 14.0f, textY, colSetW, rowH), &ellipsisFmt, &whiteBrush);
+            g.DrawString(wVal.c_str(), -1, &fontTableBold, RectF(rx + colValX, textY, colValW, rowH), &ellipsisFmt, &yellowBrush);
+            g.DrawString(wReason.c_str(), -1, &fontTable, RectF(rx + colWhyX, sy + 3.0f, std::max(120.0f, rw - colWhyX - 14.0f), rowH - 4.0f), &wrapFmt, &mutedBrush);
         }
     }
     // =========================================================================
@@ -2618,7 +2678,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
             // Language Selector Combo in Top Header
             g_app.hwndLang = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-                                             0, 0, 114, 120, hwnd, reinterpret_cast<HMENU>(IDC_COMBO_LANG),
+                                             0, 0, 136, 120, hwnd, reinterpret_cast<HMENU>(IDC_COMBO_LANG),
                                              GetModuleHandleW(nullptr), nullptr);
             SendMessageW(g_app.hwndLang, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.hFontUiBold), TRUE);
             SendMessageW(g_app.hwndLang, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"EN | English"));
@@ -2641,10 +2701,11 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             SendMessageW(g_app.hwndSearch, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"Search 50+ games, genres, engines..."));
 
             g_app.hwndFilter = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-                                               0, 0, 180, 200, hwnd, reinterpret_cast<HMENU>(IDC_COMBO_FILTER),
+                                               0, 0, 205, 220, hwnd, reinterpret_cast<HMENU>(IDC_COMBO_FILTER),
                                                GetModuleHandleW(nullptr), nullptr);
             SendMessageW(g_app.hwndFilter, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.hFontUi), TRUE);
-            SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"All 50+ Games"));
+            SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Installed Games"));
+            SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"All Games (Installed First)"));
             SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Ultra / Recommended"));
             SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Competitive / High FPS"));
             SendMessageW(g_app.hwndFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Story / AAA"));
