@@ -6,55 +6,55 @@
   "channel": "stable",
   "releasedAt": "2026-11-17T22:45:00-03:00",
   "notes": "CalVer 2026.11.17.2 Release: GameCheck — Pure 100% Native C++17 Desktop GUI Application (Win32 API + GDI+ + ComCtl32 + ComDlg32 on Windows, C++17 on Linux), replacing Electron with a zero-overhead native desktop executable (bin/GameCheck.exe).",
-  "generatedAt": "2026-11-21T02:45:51.633Z",
+  "generatedAt": "2026-11-21T02:48:59.463Z",
   "assets": [
     {
       "fileName": "GameCheck-Setup-2026.11.17.exe",
       "relativePath": "dist/GameCheck-Setup-2026.11.17.exe",
       "platform": "win32",
       "type": "windows-native-cpp-installer",
-      "sizeBytes": 3213312,
-      "sha256": "cd029eedef0dbc56cabab1bdbd81d3ac8bbdd8187d305b2f22f7e4d9fb8aff44"
+      "sizeBytes": 3213824,
+      "sha256": "7130293623e2e5c5ac4afda2ac5c49d67db562ce54f54e88894805f6bb5333f6"
     },
     {
       "fileName": "RigCheck-Optimizer-Setup-2026.11.17.exe",
       "relativePath": "dist/RigCheck-Optimizer-Setup-2026.11.17.exe",
       "platform": "win32",
       "type": "windows-native-cpp-installer",
-      "sizeBytes": 3213312,
-      "sha256": "cd029eedef0dbc56cabab1bdbd81d3ac8bbdd8187d305b2f22f7e4d9fb8aff44"
+      "sizeBytes": 3213824,
+      "sha256": "7130293623e2e5c5ac4afda2ac5c49d67db562ce54f54e88894805f6bb5333f6"
     },
     {
       "fileName": "gamecheck-installer-2026.11.17.sh",
       "relativePath": "dist/gamecheck-installer-2026.11.17.sh",
       "platform": "linux",
       "type": "linux-self-contained-installer",
-      "sizeBytes": 2779497,
-      "sha256": "d113c8207cb57605d756790de41df9ac43034dc73fd841dcff6d371f748c6558"
+      "sizeBytes": 2779647,
+      "sha256": "69967b7c55343602b5ed6800021d51bb8d64da81036b07375fff440c5eaabdb2"
     },
     {
       "fileName": "rigcheck-installer-2026.11.17.sh",
       "relativePath": "dist/rigcheck-installer-2026.11.17.sh",
       "platform": "linux",
       "type": "linux-self-contained-installer",
-      "sizeBytes": 2779497,
-      "sha256": "d113c8207cb57605d756790de41df9ac43034dc73fd841dcff6d371f748c6558"
+      "sizeBytes": 2779647,
+      "sha256": "69967b7c55343602b5ed6800021d51bb8d64da81036b07375fff440c5eaabdb2"
     },
     {
       "fileName": "GameCheck-App-Payload-2026.11.17.zip",
       "relativePath": "dist/GameCheck-App-Payload-2026.11.17.zip",
       "platform": "cross-platform",
       "type": "portable-app-payload-zip",
-      "sizeBytes": 2050014,
-      "sha256": "71afce1023dd3fbfb5f9982ef8d9159eca71cfb2b55c4596ea948c7e1a7c57ec"
+      "sizeBytes": 2050124,
+      "sha256": "24d1bd797a5f7c4f6c55a4081490d1d43e9bc926d1f0d313eba2bb337114d5b5"
     },
     {
       "fileName": "RigCheck-App-Payload-2026.11.17.zip",
       "relativePath": "dist/RigCheck-App-Payload-2026.11.17.zip",
       "platform": "cross-platform",
       "type": "portable-app-payload-zip",
-      "sizeBytes": 2050014,
-      "sha256": "71afce1023dd3fbfb5f9982ef8d9159eca71cfb2b55c4596ea948c7e1a7c57ec"
+      "sizeBytes": 2050124,
+      "sha256": "24d1bd797a5f7c4f6c55a4081490d1d43e9bc926d1f0d313eba2bb337114d5b5"
     },
     {
       "fileName": "rigcheck-patch-2026.11.17.3.rigpatch.json",
