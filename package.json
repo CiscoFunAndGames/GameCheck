@@ -10,6 +10,8 @@
     "web": "node src/server.js",
     "check": "node src/cli.js",
     "test": "node test/run-all.js",
+    "scan:security": "node scripts/security-policy-scan.js",
+    "scan:perf": "node scripts/perf-gate.js",
     "version:status": "node scripts/calver.js status",
     "version:bump": "node scripts/calver.js bump",
     "version:patch": "node scripts/calver.js bump-patch",

@@ -1,0 +1,176 @@
+name: PR Security, Anti-Malware & Performance Scans
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+      - master
+  push:
+    branches:
+      - dev
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+  security-events: write
+
+jobs:
+  protect-ci-and-scans:
+    name: Enforce Admin-Only Pipeline & Scanner Protection
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Block Non-Admin Edits to Pipelines & Security Scanners
+        run: |
+          BASE_REF="${{ github.base_ref }}"
+          ACTOR="${{ github.actor }}"
+          OWNER="${{ github.repository_owner }}"
+          git fetch origin "${BASE_REF}" --depth=1
+          CHANGED=$(git diff --name-only "origin/${BASE_REF}...HEAD")
+          PROTECTED=$(echo "${CHANGED}" | grep -E '^(\.github/|scripts/security-policy-scan\.js|scripts/perf-gate\.js|scripts/build-installer\.js|scripts/calver\.js|scripts/create-patch\.js)' || true)
+          if [ -n "${PROTECTED}" ] && [ "${ACTOR}" != "${OWNER}" ]; then
+            echo "::error::Unauthorized modification to protected CI/CD pipeline or security scanner files by '${ACTOR}'."
+            echo "Protected files touched:"
+            echo "${PROTECTED}"
+            echo "Only the repository admin (${OWNER}) is permitted to modify pipelines and security scans."
+            exit 1
+          fi
+          echo "[PASS] Pipeline & scanner ownership check passed (actor: ${ACTOR})."
+
+  security-policy-and-audit:
+    name: Anti-Keylogger, Spyware, Secret & Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Run Anti-Keylogger, Anti-Injection & Secret Policy Scan
+        run: node scripts/security-policy-scan.js
+
+      - name: Run NPM Dependency Vulnerability Audit (High/Critical)
+        run: npm audit --audit-level=high || true
+
+      - name: Scan Git History & Diff for Leaked Secrets (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  antivirus-malware-scan:
+    name: ClamAV Antivirus & Malware Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Install & Update ClamAV Antivirus Engine
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clamav clamav-freshclam
+          sudo systemctl stop clamav-freshclam || true
+          sudo freshclam || true
+
+      - name: Scan Entire Repository & Binaries for Viruses / Trojans
+        run: |
+          clamscan -r --infected --suppress-ok-results --exclude-dir='^\./\.git' --exclude-dir='^\./node_modules' .
+
+  codeql-sast:
+    name: CodeQL Static Security Analysis (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['javascript-typescript', 'cpp']
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Build C++ Targets for CodeQL Analysis
+        if: matrix.language == 'cpp'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ libgtk-3-dev pkg-config
+          mkdir -p bin
+          g++ -O2 -std=c++17 native/rigcheck_probe.cpp -o bin/rigcheck-native-probe
+          g++ -O2 -std=c++17 -DGAMECHECK_USE_GTK native/gamecheck_desktop.cpp -o bin/gamecheck $(pkg-config --cflags --libs gtk+-3.0) -lpthread
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          output: sarif-results
+          upload: ${{ github.event.repository.private && 'false' || 'always' }}
+
+      - name: Evaluate CodeQL SARIF Findings
+        run: |
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const dir = "sarif-results";
+            if (!fs.existsSync(dir)) { console.log("No SARIF directory found."); process.exit(0); }
+            let errors = 0, warnings = 0;
+            for (const f of fs.readdirSync(dir).filter(x => x.endsWith(".sarif"))) {
+              const sarif = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
+              for (const run of (sarif.runs || [])) {
+                for (const r of (run.results || [])) {
+                  const lvl = (r.level || "warning").toLowerCase();
+                  if (lvl === "error") {
+                    errors++;
+                    console.error(`[CodeQL ERROR] ${r.ruleId}: ${r.message && r.message.text}`);
+                  } else {
+                    warnings++;
+                  }
+                }
+              }
+            }
+            console.log(`CodeQL SARIF Summary: ${errors} error(s), ${warnings} warning(s)/note(s)`);
+            if (errors > 0) process.exit(1);
+          '
+
+  performance-gate:
+    name: Performance, Latency & Binary Footprint Gate
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Install Dependencies
+        shell: pwsh
+        run: if (Test-Path package-lock.json) { npm ci } else { npm install }
+
+      - name: Compile C++17 Targets (Windows)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path bin | Out-Null
+          windres native/gamecheck.rc -O coff -o native/gamecheck_res.o
+          g++ -O2 -std=c++17 native/rigcheck_probe.cpp -o bin/rigcheck-native-probe.exe -luser32 -lgdi32 -ladvapi32 -static -s
+          g++ -O2 -std=c++17 -mwindows native/gamecheck_desktop.cpp native/gamecheck_res.o -o bin/GameCheck.exe -lgdiplus -luxtheme -lcomctl32 -lcomdlg32 -lshell32 -luser32 -lgdi32 -ladvapi32 -lole32 -luuid -lwinhttp -static -s
+
+      - name: Run Performance & Footprint Gate
+        shell: pwsh
+        run: node scripts/perf-gate.js
