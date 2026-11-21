@@ -34,15 +34,15 @@ jobs:
         run: |
           BASE_REF="${{ github.base_ref }}"
           ACTOR="${{ github.actor }}"
-          OWNER="${{ github.repository_owner }}"
+          ADMIN_USER="FranciscoFlorio25"
           git fetch origin "${BASE_REF}" --depth=1
           CHANGED=$(git diff --name-only "origin/${BASE_REF}...HEAD")
           PROTECTED=$(echo "${CHANGED}" | grep -E '^(\.github/|scripts/security-policy-scan\.js|scripts/perf-gate\.js|scripts/build-installer\.js|scripts/calver\.js|scripts/create-patch\.js)' || true)
-          if [ -n "${PROTECTED}" ] && [ "${ACTOR}" != "${OWNER}" ]; then
+          if [ -n "${PROTECTED}" ] && [ "${ACTOR}" != "${ADMIN_USER}" ]; then
             echo "::error::Unauthorized modification to protected CI/CD pipeline or security scanner files by '${ACTOR}'."
             echo "Protected files touched:"
             echo "${PROTECTED}"
-            echo "Only the repository admin (${OWNER}) is permitted to modify pipelines and security scans."
+            echo "Only the repository admin (${ADMIN_USER}) is permitted to modify pipelines and security scans."
             exit 1
           fi
           echo "[PASS] Pipeline & scanner ownership check passed (actor: ${ACTOR})."
@@ -67,10 +67,13 @@ jobs:
       - name: Run NPM Dependency Vulnerability Audit (High/Critical)
         run: npm audit --audit-level=high || true
 
-      - name: Scan Git History & Diff for Leaked Secrets (Gitleaks)
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Scan Repository for Leaked Secrets (Open-Source Gitleaks CLI)
+        run: |
+          GITLEAKS_VER="8.24.2"
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          chmod +x /tmp/gitleaks
+          /tmp/gitleaks detect --source . --redact --verbose
 
   antivirus-malware-scan:
     name: ClamAV Antivirus & Malware Scan

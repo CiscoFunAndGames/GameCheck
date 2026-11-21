@@ -4018,7 +4018,7 @@ inline UpdateCheckResult checkForAppUpdates(const std::string& currentVersion, c
     // 2. Query GitHub Releases latest endpoint via WinHTTP (3s timeout, read-only HTTPS)
     std::string apiJson;
     if (detail::winHttpGetToMemory(
-            L"https://api.github.com/repos/FranciscoFlorio25/GameCheck/releases/latest",
+            L"https://api.github.com/repos/CiscoFunAndGames/GameCheck/releases/latest",
             apiJson,
             3000)) {
         std::string remoteTag = detail::extractJsonStringField(apiJson, "tag_name");
