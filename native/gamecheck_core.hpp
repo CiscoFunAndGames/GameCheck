@@ -168,6 +168,117 @@ inline std::wstring utf8ToWide(const std::string& str) {
 }
 #endif
 
+inline int bytesToRoundedGB(uint64_t bytes, int minGB = 1) {
+    return std::max(minGB, static_cast<int>(std::round(static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0))));
+}
+
+inline double bytesToSizeGB(uint64_t bytes, double fallbackGB) {
+    if (bytes == 0) return fallbackGB;
+    return std::max(1.0, std::round((static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0)) * 10.0) / 10.0);
+}
+
+inline std::string inferGpuVendor(const std::string& vendor, const std::string& gpuName) {
+    std::string v = toLower(vendor);
+    if (!v.empty() && v != "unknown") return v;
+    std::string nameLow = toLower(gpuName);
+    if (nameLow.find("nvidia") != std::string::npos || nameLow.find("geforce") != std::string::npos ||
+        nameLow.find("rtx") != std::string::npos || nameLow.find("gtx") != std::string::npos) {
+        return "nvidia";
+    }
+    if (nameLow.find("amd") != std::string::npos || nameLow.find("radeon") != std::string::npos ||
+        nameLow.find("rx ") != std::string::npos) {
+        return "amd";
+    }
+    if (nameLow.find("intel") != std::string::npos || nameLow.find("arc") != std::string::npos) {
+        return "intel";
+    }
+    return v;
+}
+
+#ifdef _WIN32
+inline bool regKeyExistsW(HKEY root, const wchar_t* subkey) {
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(root, subkey, 0, KEY_READ, &hKey) != ERROR_SUCCESS) return false;
+    RegCloseKey(hKey);
+    return true;
+}
+
+inline std::string readOpenRegStringW(HKEY hKey, const wchar_t* valueName) {
+    wchar_t buf[512] = {};
+    DWORD len = sizeof(buf);
+    if (RegQueryValueExW(hKey, valueName, nullptr, nullptr, reinterpret_cast<LPBYTE>(buf), &len) != ERROR_SUCCESS) {
+        return "";
+    }
+    return trim(wideToUtf8(buf));
+}
+
+inline std::string readRegStringW(HKEY root, const wchar_t* subkey, const wchar_t* valueName) {
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(root, subkey, 0, KEY_READ, &hKey) != ERROR_SUCCESS) return "";
+    std::string val = readOpenRegStringW(hKey, valueName);
+    RegCloseKey(hKey);
+    return val;
+}
+
+inline bool readOpenRegDwordW(HKEY hKey, const wchar_t* valueName, DWORD& outVal) {
+    DWORD val = 0;
+    DWORD len = sizeof(val);
+    if (RegQueryValueExW(hKey, valueName, nullptr, nullptr, reinterpret_cast<LPBYTE>(&val), &len) != ERROR_SUCCESS) {
+        return false;
+    }
+    outVal = val;
+    return true;
+}
+
+inline uint64_t readOpenRegUInt64W(HKEY hKey, const wchar_t* valueName) {
+    BYTE buf[16] = {};
+    DWORD len = sizeof(buf);
+    DWORD regType = 0;
+    if (RegQueryValueExW(hKey, valueName, nullptr, &regType, buf, &len) != ERROR_SUCCESS) return 0;
+    if (len >= 8) {
+        uint64_t val = 0;
+        std::memcpy(&val, buf, sizeof(uint64_t));
+        return val;
+    }
+    if (len == 4) {
+        uint32_t val32 = 0;
+        std::memcpy(&val32, buf, sizeof(uint32_t));
+        return val32;
+    }
+    return 0;
+}
+
+inline std::string readOpenRegStringA(HKEY hKey, const char* valueName) {
+    char buf[MAX_PATH * 2] = {};
+    DWORD sz = sizeof(buf) - 1;
+    DWORD type = 0;
+    if (RegQueryValueExA(hKey, valueName, nullptr, &type, reinterpret_cast<LPBYTE>(buf), &sz) != ERROR_SUCCESS) {
+        return "";
+    }
+    if (type != REG_SZ && type != REG_EXPAND_SZ) return "";
+    return trim(std::string(buf));
+}
+
+inline std::string readRegStringA(HKEY root, const char* subkey, const char* valueName) {
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExA(root, subkey, 0, KEY_READ, &hKey) != ERROR_SUCCESS) return "";
+    std::string val = readOpenRegStringA(hKey, valueName);
+    RegCloseKey(hKey);
+    return val;
+}
+
+inline std::vector<std::string> getFixedDriveRootsA() {
+    std::vector<std::string> roots;
+    for (char d = 'C'; d <= 'Z'; ++d) {
+        std::string root = std::string(1, d) + ":\\";
+        if (GetDriveTypeA(root.c_str()) == DRIVE_FIXED) {
+            roots.push_back(root);
+        }
+    }
+    return roots;
+}
+#endif
+
 // =============================================================================
 // 2. CPU & GPU Benchmark Lookup Tables & Scoring (0 - 100 Scale)
 // =============================================================================
@@ -612,84 +723,46 @@ inline std::string lookupRegistryMonitorName(const std::wstring& monitorDeviceId
 
 inline std::vector<DriverSuiteInfo> detectDriverSuites(const SystemSpecs& specs) {
     std::vector<DriverSuiteInfo> suites;
-    std::string gpuVendor = toLower(specs.gpu.vendor);
-    std::string gpuNameLow = toLower(specs.gpu.name);
-    if (gpuVendor.empty() || gpuVendor == "unknown") {
-        if (gpuNameLow.find("nvidia") != std::string::npos || gpuNameLow.find("geforce") != std::string::npos || gpuNameLow.find("rtx") != std::string::npos || gpuNameLow.find("gtx") != std::string::npos) gpuVendor = "nvidia";
-        else if (gpuNameLow.find("amd") != std::string::npos || gpuNameLow.find("radeon") != std::string::npos) gpuVendor = "amd";
-        else if (gpuNameLow.find("intel") != std::string::npos || gpuNameLow.find("arc") != std::string::npos) gpuVendor = "intel";
-    }
+    std::string gpuVendor = inferGpuVendor(specs.gpu.vendor, specs.gpu.name);
+    std::string driverVer = (!specs.gpu.driverVersion.empty() && specs.gpu.driverVersion != "Unknown")
+        ? specs.gpu.driverVersion : "N/A";
 
 #ifdef _WIN32
     auto fileExists = [](const std::string& p) -> bool {
         std::error_code ec;
         return std::filesystem::exists(std::filesystem::u8path(p), ec);
     };
-    auto regKeyExists = [](HKEY root, const wchar_t* subkey) -> bool {
-        HKEY hKey = nullptr;
-        if (RegOpenKeyExW(root, subkey, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-            RegCloseKey(hKey);
-            return true;
+    auto addWinSuite = [&](const std::string& id, const std::string& name, const std::string& vendorKey,
+                           const std::vector<std::string>& exeCandidates, const wchar_t* regSubkey) {
+        std::string foundExe;
+        for (const auto& exe : exeCandidates) {
+            if (fileExists(exe)) { foundExe = exe; break; }
         }
-        return false;
+        bool hasReg = regSubkey && regKeyExistsW(HKEY_LOCAL_MACHINE, regSubkey);
+        bool isVendor = (gpuVendor == vendorKey);
+        if (foundExe.empty() && !hasReg && !isVendor) return;
+
+        DriverSuiteInfo s;
+        s.id = id;
+        s.name = name;
+        s.detected = true;
+        s.installStatus = (!foundExe.empty() || hasReg) ? "INSTALLED" : "DRIVER_ONLY";
+        s.exePath = foundExe;
+        s.version = isVendor ? driverVer : "N/A";
+        suites.push_back(s);
     };
 
-    // 1. AMD Software: Adrenalin Edition
-    {
-        DriverSuiteInfo s;
-        s.id = "amd_adrenalin";
-        s.name = "AMD Software: Adrenalin Edition";
-        const std::string exe = "C:\\Program Files\\AMD\\CNext\\CNext\\RadeonSoftware.exe";
-        bool hasExe = fileExists(exe);
-        bool hasReg = regKeyExists(HKEY_LOCAL_MACHINE, L"SOFTWARE\\AMD\\CN");
-        bool isVendor = (gpuVendor == "amd");
-        if (hasExe || hasReg || isVendor) {
-            s.detected = true;
-            s.installStatus = (hasExe || hasReg) ? "INSTALLED" : "DRIVER_ONLY";
-            s.exePath = hasExe ? exe : "";
-            s.version = (isVendor && !specs.gpu.driverVersion.empty() && specs.gpu.driverVersion != "Unknown") ? specs.gpu.driverVersion : "N/A";
-            suites.push_back(s);
-        }
-    }
-
-    // 2. NVIDIA App / Control Panel
-    {
-        DriverSuiteInfo s;
-        s.id = "nvidia_app";
-        s.name = "NVIDIA App / Control Panel";
-        const std::string nvAppExe = "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NVIDIA App.exe";
-        const std::string nvCpExe  = "C:\\Program Files\\NVIDIA Corporation\\Control Panel Client\\nvcplui.exe";
-        bool hasApp = fileExists(nvAppExe);
-        bool hasCp  = fileExists(nvCpExe);
-        bool hasReg = regKeyExists(HKEY_LOCAL_MACHINE, L"SOFTWARE\\NVIDIA Corporation\\Global");
-        bool isVendor = (gpuVendor == "nvidia");
-        if (hasApp || hasCp || hasReg || isVendor) {
-            s.detected = true;
-            s.installStatus = (hasApp || hasCp || hasReg) ? "INSTALLED" : "DRIVER_ONLY";
-            s.exePath = hasApp ? nvAppExe : (hasCp ? nvCpExe : "");
-            s.version = (isVendor && !specs.gpu.driverVersion.empty() && specs.gpu.driverVersion != "Unknown") ? specs.gpu.driverVersion : "N/A";
-            suites.push_back(s);
-        }
-    }
-
-    // 3. Intel Arc Control / Graphics Software
-    {
-        DriverSuiteInfo s;
-        s.id = "intel_arc";
-        s.name = "Intel Arc Control / Graphics Software";
-        const std::string igsExe = "C:\\Program Files\\Intel\\Intel Graphics Software\\IntelGraphicsSoftware.exe";
-        const std::string arcExe = "C:\\Program Files\\Intel\\Intel Arc Control\\ArcControl.exe";
-        bool hasIgs = fileExists(igsExe);
-        bool hasArc = fileExists(arcExe);
-        bool isVendor = (gpuVendor == "intel");
-        if (hasIgs || hasArc || isVendor) {
-            s.detected = true;
-            s.installStatus = (hasIgs || hasArc) ? "INSTALLED" : "DRIVER_ONLY";
-            s.exePath = hasIgs ? igsExe : (hasArc ? arcExe : "");
-            s.version = (isVendor && !specs.gpu.driverVersion.empty() && specs.gpu.driverVersion != "Unknown") ? specs.gpu.driverVersion : "N/A";
-            suites.push_back(s);
-        }
-    }
+    addWinSuite("amd_adrenalin", "AMD Software: Adrenalin Edition", "amd",
+        { "C:\\Program Files\\AMD\\CNext\\CNext\\RadeonSoftware.exe" },
+        L"SOFTWARE\\AMD\\CN");
+    addWinSuite("nvidia_app", "NVIDIA App / Control Panel", "nvidia",
+        { "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NVIDIA App.exe",
+          "C:\\Program Files\\NVIDIA Corporation\\Control Panel Client\\nvcplui.exe" },
+        L"SOFTWARE\\NVIDIA Corporation\\Global");
+    addWinSuite("intel_arc", "Intel Arc Control / Graphics Software", "intel",
+        { "C:\\Program Files\\Intel\\Intel Graphics Software\\IntelGraphicsSoftware.exe",
+          "C:\\Program Files\\Intel\\Intel Arc Control\\ArcControl.exe" },
+        nullptr);
 #else
     auto pathExists = [](const char* p) -> bool {
         struct stat st;
@@ -728,405 +801,304 @@ inline std::vector<DriverSuiteInfo> detectDriverSuites(const SystemSpecs& specs)
     return suites;
 }
 
+inline std::string detectOsVersionString() {
+#ifdef _WIN32
+    std::string buildStr = readRegStringW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"CurrentBuildNumber");
+    if (buildStr.empty()) buildStr = "22631";
+    int buildNum = std::atoi(buildStr.c_str());
+    return (buildNum >= 22000)
+        ? ("Windows 11 (Build " + std::to_string(buildNum) + ")")
+        : ("Windows 10 (Build " + std::to_string(buildNum > 0 ? buildNum : 19045) + ")");
+#else
+    return "Linux Desktop";
+#endif
+}
+
+inline CpuSpec detectCpuSpec() {
+    CpuSpec cpu;
+    std::string cpuName;
+    int threads = 8;
+    double mhz = 3600.0;
+
+#ifdef _WIN32
+    SYSTEM_INFO sysInfo = {};
+    GetSystemInfo(&sysInfo);
+    threads = sysInfo.dwNumberOfProcessors > 0 ? static_cast<int>(sysInfo.dwNumberOfProcessors) : 8;
+    cpuName = "Unknown x86_64 Processor";
+
+    HKEY hCpuKey = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"HARDWARE\\Description\\System\\CentralProcessor\\0", 0, KEY_READ, &hCpuKey) == ERROR_SUCCESS) {
+        std::string parsed = readOpenRegStringW(hCpuKey, L"ProcessorNameString");
+        if (!parsed.empty()) cpuName = parsed;
+        DWORD mhzVal = 0;
+        if (readOpenRegDwordW(hCpuKey, L"~MHz", mhzVal) && mhzVal > 0) mhz = static_cast<double>(mhzVal);
+        RegCloseKey(hCpuKey);
+    }
+#else
+    std::ifstream cpuFile("/proc/cpuinfo");
+    std::string line;
+    threads = 0;
+    while (std::getline(cpuFile, line)) {
+        if (line.find("model name") != std::string::npos && cpuName.empty()) {
+            auto pos = line.find(':');
+            if (pos != std::string::npos) cpuName = trim(line.substr(pos + 1));
+        } else if (line.find("processor") == 0) {
+            ++threads;
+        } else if (line.find("cpu MHz") != std::string::npos) {
+            auto pos = line.find(':');
+            if (pos != std::string::npos) mhz = std::atof(line.substr(pos + 1).c_str());
+        }
+    }
+    if (threads <= 0) threads = 8;
+    if (cpuName.empty()) cpuName = "Linux x86_64 Processor";
+#endif
+
+    CpuBenchResult cpuEval = scoreCPU(cpuName, threads);
+    cpu.name = cpuName;
+    cpu.threads = threads;
+    cpu.cores = cpuEval.estimatedCores;
+    cpu.speedMHz = static_cast<int>(mhz);
+    cpu.speedGHz = std::round((mhz / 1000.0) * 100.0) / 100.0;
+    cpu.score = cpuEval.score;
+    return cpu;
+}
+
+inline RamSpec detectRamSpec() {
+    RamSpec ram;
+#ifdef _WIN32
+    MEMORYSTATUSEX memStatus = {};
+    memStatus.dwLength = sizeof(memStatus);
+    if (GlobalMemoryStatusEx(&memStatus)) {
+        ram.totalGB = bytesToRoundedGB(memStatus.ullTotalPhys, 1);
+        ram.freeGB = bytesToRoundedGB(memStatus.ullAvailPhys, 0);
+        ram.availGB = ram.freeGB;
+        ram.usedGB = std::max(0, ram.totalGB - ram.freeGB);
+    }
+#else
+    std::ifstream memFile("/proc/meminfo");
+    std::string line;
+    long long totalKB = 16 * 1024 * 1024;
+    long long availKB = 8 * 1024 * 1024;
+    while (std::getline(memFile, line)) {
+        if (line.find("MemTotal:") == 0) std::sscanf(line.c_str(), "MemTotal: %lld", &totalKB);
+        else if (line.find("MemAvailable:") == 0) std::sscanf(line.c_str(), "MemAvailable: %lld", &availKB);
+    }
+    ram.totalGB = std::max(1, static_cast<int>(std::round(totalKB / (1024.0 * 1024.0))));
+    ram.freeGB = std::max(0, static_cast<int>(std::round(availKB / (1024.0 * 1024.0))));
+    ram.availGB = ram.freeGB;
+    ram.usedGB = std::max(0, ram.totalGB - ram.freeGB);
+#endif
+    return ram;
+}
+
+inline void detectGpuSpecs(GpuSpec& primaryOut, std::vector<GpuSpec>& allOut) {
+#ifdef _WIN32
+    std::vector<GpuSpec> detectedGpus;
+    for (int idx = 0; idx <= 15; ++idx) {
+        wchar_t keyPath[256];
+        std::swprintf(keyPath, 256, L"SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\%04d", idx);
+        HKEY hGpuKey = nullptr;
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyPath, 0, KEY_READ, &hGpuKey) != ERROR_SUCCESS) continue;
+
+        std::string gpuName = readOpenRegStringW(hGpuKey, L"DriverDesc");
+        if (gpuName.empty()) { RegCloseKey(hGpuKey); continue; }
+
+        std::string driverVer = readOpenRegStringW(hGpuKey, L"DriverVersion");
+        if (driverVer.empty()) driverVer = "Unknown";
+
+        uint64_t memBytes = readOpenRegUInt64W(hGpuKey, L"HardwareInformation.qwMemorySize");
+        if (memBytes == 0) memBytes = readOpenRegUInt64W(hGpuKey, L"HardwareInformation.MemorySize");
+        RegCloseKey(hGpuKey);
+
+        int vramMB = memBytes > 0 ? static_cast<int>(memBytes / (1024ULL * 1024ULL)) : 0;
+        int vramGB = vramMB > 0 ? std::max(1, static_cast<int>(std::round(static_cast<double>(vramMB) / 1024.0))) : 0;
+        GpuBenchResult eval = scoreGPU(gpuName, vramGB);
+
+        GpuSpec g;
+        g.name = gpuName;
+        g.driverVersion = driverVer;
+        g.vramGB = vramGB > 0 ? vramGB : eval.vramGB;
+        g.vramMB = vramMB > 0 ? vramMB : (g.vramGB * 1024);
+        g.vendor = eval.vendor;
+        g.rtCapable = eval.rtCapable;
+        g.upscaler = eval.upscaler;
+        g.score = eval.score;
+        detectedGpus.push_back(g);
+    }
+
+    std::sort(detectedGpus.begin(), detectedGpus.end(), [](const GpuSpec& a, const GpuSpec& b) {
+        int aReal = isVirtualGpuAdapter(a.name) ? 0 : 1;
+        int bReal = isVirtualGpuAdapter(b.name) ? 0 : 1;
+        if (aReal != bReal) return aReal > bReal;
+        int aDisc = isIntegratedGpuAdapter(a.name, a.vramMB) ? 0 : 1;
+        int bDisc = isIntegratedGpuAdapter(b.name, b.vramMB) ? 0 : 1;
+        if (aDisc != bDisc) return aDisc > bDisc;
+        if (a.score != b.score) return a.score > b.score;
+        return a.vramMB > b.vramMB;
+    });
+
+    allOut = detectedGpus;
+    if (!detectedGpus.empty()) primaryOut = detectedGpus.front();
+#else
+    long long vramBytes = 0;
+    std::ifstream vramFile("/sys/class/drm/card0/device/mem_info_vram_total");
+    if (vramFile) vramFile >> vramBytes;
+    int vramGB = vramBytes > 0 ? bytesToRoundedGB(static_cast<uint64_t>(vramBytes), 1) : 8;
+    GpuBenchResult eval = scoreGPU("AMD Radeon RX 7600", vramGB);
+    primaryOut.name = "Linux DRM GPU";
+    primaryOut.vramGB = vramGB;
+    primaryOut.vramMB = vramGB * 1024;
+    primaryOut.vendor = eval.vendor;
+    primaryOut.rtCapable = eval.rtCapable;
+    primaryOut.upscaler = eval.upscaler;
+    primaryOut.score = eval.score;
+    allOut.push_back(primaryOut);
+#endif
+}
+
+inline void detectStorageSpecs(StorageSpec& storageOut, std::vector<DriveSpec>& drivesOut) {
+    std::vector<DriveSpec> foundDrives;
+#ifdef _WIN32
+    wchar_t driveStrings[512] = {};
+    DWORD len = GetLogicalDriveStringsW(511, driveStrings);
+    const wchar_t* p = driveStrings;
+    while (len > 0 && *p != L'\0') {
+        std::wstring rootPath(p);
+        if (GetDriveTypeW(rootPath.c_str()) == DRIVE_FIXED) {
+            ULARGE_INTEGER freeBytesAvail = {}, totalBytes = {}, totalFreeBytes = {};
+            if (GetDiskFreeSpaceExW(rootPath.c_str(), &freeBytesAvail, &totalBytes, &totalFreeBytes) && totalBytes.QuadPart > 0) {
+                wchar_t volName[128] = {}, fsName[64] = {};
+                GetVolumeInformationW(rootPath.c_str(), volName, 128, nullptr, nullptr, nullptr, fsName, 64);
+
+                std::string driveCode = wideToUtf8(rootPath.substr(0, 2));
+                std::string volStr = trim(wideToUtf8(volName));
+                std::string fsStr = trim(wideToUtf8(fsName));
+
+                DriveSpec d;
+                d.drive = driveCode;
+                d.label = volStr.empty() ? ("Local Disk (" + driveCode + ")") : (volStr + " (" + driveCode + ")");
+                d.fsType = fsStr.empty() ? "NTFS" : fsStr;
+                d.totalGB = bytesToRoundedGB(totalBytes.QuadPart, 1);
+                d.freeGB = bytesToRoundedGB(freeBytesAvail.QuadPart, 0);
+                d.usedGB = std::max(0, d.totalGB - d.freeGB);
+                d.usedPercent = std::min(100, std::max(0, static_cast<int>(std::round((static_cast<double>(d.usedGB) / d.totalGB) * 100.0))));
+                foundDrives.push_back(d);
+            }
+        }
+        p += rootPath.size() + 1;
+    }
+    if (foundDrives.empty()) foundDrives.push_back(DriveSpec{});
+#else
+    struct statvfs st = {};
+    DriveSpec d;
+    d.drive = "/";
+    d.label = "Root (/)";
+    d.fsType = "ext4";
+    if (statvfs("/", &st) == 0 && st.f_blocks > 0) {
+        d.totalGB = bytesToRoundedGB(static_cast<uint64_t>(st.f_blocks) * st.f_frsize, 1);
+        d.freeGB = bytesToRoundedGB(static_cast<uint64_t>(st.f_bavail) * st.f_frsize, 0);
+        d.usedGB = std::max(0, d.totalGB - d.freeGB);
+        d.usedPercent = std::min(100, std::max(0, static_cast<int>(std::round((static_cast<double>(d.usedGB) / d.totalGB) * 100.0))));
+    }
+    foundDrives.push_back(d);
+#endif
+
+    auto bestIt = std::max_element(foundDrives.begin(), foundDrives.end(), [](const DriveSpec& a, const DriveSpec& b) {
+        return a.freeGB < b.freeGB;
+    });
+    drivesOut = foundDrives;
+    storageOut.drives = foundDrives;
+    storageOut.allDrives = foundDrives;
+    storageOut.drive = bestIt->drive;
+    storageOut.primaryDrive = bestIt->drive;
+    storageOut.label = bestIt->label;
+    storageOut.freeGB = bestIt->freeGB;
+    storageOut.totalGB = bestIt->totalGB;
+    storageOut.usedGB = bestIt->usedGB;
+    storageOut.usedPercent = bestIt->usedPercent;
+}
+
+inline void detectDisplaySpecs(DisplaySpec& primaryOut, std::vector<DisplaySpec>& allOut) {
+#ifdef _WIN32
+    std::vector<DisplaySpec> foundDisplays;
+    DISPLAY_DEVICEW adapter = {};
+    adapter.cb = sizeof(adapter);
+
+    for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &adapter, 0); ++i) {
+        if ((adapter.StateFlags & DISPLAY_DEVICE_ACTIVE) != 0) {
+            DEVMODEW dm = {};
+            dm.dmSize = sizeof(dm);
+            if (!EnumDisplaySettingsExW(adapter.DeviceName, ENUM_CURRENT_SETTINGS, &dm, 0)) {
+                EnumDisplaySettingsExW(adapter.DeviceName, ENUM_REGISTRY_SETTINGS, &dm, 0);
+            }
+
+            DISPLAY_DEVICEW mon = {};
+            mon.cb = sizeof(mon);
+            std::string monitorName = "Generic PnP Monitor";
+            std::wstring monDeviceId;
+            if (EnumDisplayDevicesW(adapter.DeviceName, 0, &mon, 0)) {
+                std::string devStr = trim(wideToUtf8(mon.DeviceString));
+                if (!devStr.empty()) monitorName = devStr;
+                monDeviceId = mon.DeviceID;
+            }
+            std::string edidName = lookupRegistryMonitorName(monDeviceId);
+            if (!edidName.empty()) monitorName = edidName;
+
+            int width = dm.dmPelsWidth > 0 ? static_cast<int>(dm.dmPelsWidth) : 1920;
+            int height = dm.dmPelsHeight > 0 ? static_cast<int>(dm.dmPelsHeight) : 1080;
+            int hz = dm.dmDisplayFrequency > 1 ? static_cast<int>(dm.dmDisplayFrequency) : 60;
+            bool isPrimary = (adapter.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) != 0;
+            std::string tier = determineResolutionTier(width, height);
+
+            DisplaySpec d;
+            d.id = "display-" + std::to_string(foundDisplays.size() + 1);
+            d.name = monitorName;
+            d.monitorName = monitorName;
+            d.adapterString = trim(wideToUtf8(adapter.DeviceString));
+            d.deviceName = trim(wideToUtf8(adapter.DeviceName));
+            d.width = width;
+            d.height = height;
+            d.tier = tier;
+            d.resolutionLabel = std::to_string(width) + "x" + std::to_string(height) + " (" + tier + ")";
+            d.refreshRateHz = hz;
+            d.aspectRatio = formatAspectRatio(width, height);
+            d.bitsPerPixel = dm.dmBitsPerPel > 0 ? static_cast<int>(dm.dmBitsPerPel) : 32;
+            d.isPrimary = isPrimary;
+            d.vrrCapable = hz >= 75;
+            d.probeEngine = "native-cpp17-win32-probe";
+
+            if (isPrimary) foundDisplays.insert(foundDisplays.begin(), d);
+            else foundDisplays.push_back(d);
+        }
+        ZeroMemory(&adapter, sizeof(adapter));
+        adapter.cb = sizeof(adapter);
+    }
+
+    if (foundDisplays.empty()) foundDisplays.push_back(DisplaySpec{});
+    allOut = foundDisplays;
+    primaryOut = foundDisplays.front();
+#else
+    DisplaySpec d;
+    d.probeEngine = "native-cpp17-linux-drm";
+    allOut.push_back(d);
+    primaryOut = d;
+#endif
+}
+
 inline SystemSpecs detectSystemSpecs() {
     auto t0 = std::chrono::steady_clock::now();
     SystemSpecs specs;
-
 #ifdef _WIN32
     specs.platform = "win32";
-
-    // OS Build from Registry
-    {
-        HKEY hOsKey = nullptr;
-        std::string buildStr = "22631";
-        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 0, KEY_READ, &hOsKey) == ERROR_SUCCESS) {
-            wchar_t buf[128] = {};
-            DWORD len = sizeof(buf);
-            if (RegQueryValueExW(hOsKey, L"CurrentBuildNumber", nullptr, nullptr, reinterpret_cast<LPBYTE>(buf), &len) == ERROR_SUCCESS) {
-                buildStr = trim(wideToUtf8(buf));
-            }
-            RegCloseKey(hOsKey);
-        }
-        int buildNum = std::atoi(buildStr.c_str());
-        specs.os = (buildNum >= 22000)
-            ? ("Windows 11 (Build " + std::to_string(buildNum) + ")")
-            : ("Windows 10 (Build " + std::to_string(buildNum > 0 ? buildNum : 19045) + ")");
-    }
-
-    // 1. CPU via Registry HKLM\HARDWARE\Description\System\CentralProcessor\0 + GetSystemInfo
-    {
-        SYSTEM_INFO sysInfo = {};
-        GetSystemInfo(&sysInfo);
-        int threads = sysInfo.dwNumberOfProcessors > 0 ? static_cast<int>(sysInfo.dwNumberOfProcessors) : 8;
-        std::string cpuName = "Unknown x86_64 Processor";
-        DWORD mhz = 3600;
-
-        HKEY hCpuKey = nullptr;
-        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"HARDWARE\\Description\\System\\CentralProcessor\\0", 0, KEY_READ, &hCpuKey) == ERROR_SUCCESS) {
-            wchar_t nameBuf[256] = {};
-            DWORD nameLen = sizeof(nameBuf);
-            if (RegQueryValueExW(hCpuKey, L"ProcessorNameString", nullptr, nullptr, reinterpret_cast<LPBYTE>(nameBuf), &nameLen) == ERROR_SUCCESS) {
-                std::string parsed = trim(wideToUtf8(nameBuf));
-                if (!parsed.empty()) cpuName = parsed;
-            }
-            DWORD mhzVal = 0;
-            DWORD mhzLen = sizeof(mhzVal);
-            if (RegQueryValueExW(hCpuKey, L"~MHz", nullptr, nullptr, reinterpret_cast<LPBYTE>(&mhzVal), &mhzLen) == ERROR_SUCCESS && mhzVal > 0) {
-                mhz = mhzVal;
-            }
-            RegCloseKey(hCpuKey);
-        }
-
-        CpuBenchResult cpuEval = scoreCPU(cpuName, threads);
-        specs.cpu.name = cpuName;
-        specs.cpu.threads = threads;
-        specs.cpu.cores = cpuEval.estimatedCores;
-        specs.cpu.speedMHz = static_cast<int>(mhz);
-        specs.cpu.speedGHz = std::round((static_cast<double>(mhz) / 1000.0) * 100.0) / 100.0;
-        specs.cpu.score = cpuEval.score;
-    }
-
-    // 2. RAM via GlobalMemoryStatusEx
-    {
-        MEMORYSTATUSEX memStatus = {};
-        memStatus.dwLength = sizeof(memStatus);
-        if (GlobalMemoryStatusEx(&memStatus)) {
-            int totalGB = std::max(1, static_cast<int>(std::round(static_cast<double>(memStatus.ullTotalPhys) / (1024.0 * 1024.0 * 1024.0))));
-            int availGB = std::max(0, static_cast<int>(std::round(static_cast<double>(memStatus.ullAvailPhys) / (1024.0 * 1024.0 * 1024.0))));
-            specs.ram.totalGB = totalGB;
-            specs.ram.freeGB = availGB;
-            specs.ram.availGB = availGB;
-            specs.ram.usedGB = std::max(0, totalGB - availGB);
-        }
-    }
-
-    // 3. GPU & VRAM via Registry HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0000..0015
-    {
-        std::vector<GpuSpec> detectedGpus;
-        for (int idx = 0; idx <= 15; ++idx) {
-            wchar_t keyPath[256];
-            std::swprintf(keyPath, 256, L"SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\%04d", idx);
-            HKEY hGpuKey = nullptr;
-            if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyPath, 0, KEY_READ, &hGpuKey) != ERROR_SUCCESS) {
-                continue;
-            }
-
-            wchar_t descBuf[256] = {};
-            DWORD descLen = sizeof(descBuf);
-            std::string gpuName;
-            if (RegQueryValueExW(hGpuKey, L"DriverDesc", nullptr, nullptr, reinterpret_cast<LPBYTE>(descBuf), &descLen) == ERROR_SUCCESS) {
-                gpuName = trim(wideToUtf8(descBuf));
-            }
-            if (gpuName.empty()) {
-                RegCloseKey(hGpuKey);
-                continue;
-            }
-
-            wchar_t verBuf[128] = {};
-            DWORD verLen = sizeof(verBuf);
-            std::string driverVer = "Unknown";
-            if (RegQueryValueExW(hGpuKey, L"DriverVersion", nullptr, nullptr, reinterpret_cast<LPBYTE>(verBuf), &verLen) == ERROR_SUCCESS) {
-                std::string v = trim(wideToUtf8(verBuf));
-                if (!v.empty()) driverVer = v;
-            }
-
-            uint64_t memBytes = 0;
-            DWORD qwType = 0;
-            BYTE qwBuf[16] = {};
-            DWORD qwLen = sizeof(qwBuf);
-            if (RegQueryValueExW(hGpuKey, L"HardwareInformation.qwMemorySize", nullptr, &qwType, qwBuf, &qwLen) == ERROR_SUCCESS) {
-                if (qwLen >= 8) {
-                    std::memcpy(&memBytes, qwBuf, sizeof(uint64_t));
-                } else if (qwLen == 4) {
-                    uint32_t m32 = 0;
-                    std::memcpy(&m32, qwBuf, sizeof(uint32_t));
-                    memBytes = m32;
-                }
-            }
-            if (memBytes == 0) {
-                BYTE mBuf[8] = {};
-                DWORD mLen = sizeof(mBuf);
-                DWORD mType = 0;
-                if (RegQueryValueExW(hGpuKey, L"HardwareInformation.MemorySize", nullptr, &mType, mBuf, &mLen) == ERROR_SUCCESS) {
-                    if (mLen == 4) {
-                        uint32_t m32 = 0;
-                        std::memcpy(&m32, mBuf, sizeof(uint32_t));
-                        memBytes = m32;
-                    } else if (mLen >= 8) {
-                        std::memcpy(&memBytes, mBuf, sizeof(uint64_t));
-                    }
-                }
-            }
-            RegCloseKey(hGpuKey);
-
-            int vramMB = memBytes > 0 ? static_cast<int>(memBytes / (1024ULL * 1024ULL)) : 0;
-            int vramGB = vramMB > 0 ? std::max(1, static_cast<int>(std::round(static_cast<double>(vramMB) / 1024.0))) : 0;
-            GpuBenchResult eval = scoreGPU(gpuName, vramGB);
-
-            GpuSpec g;
-            g.name = gpuName;
-            g.driverVersion = driverVer;
-            g.vramGB = vramGB > 0 ? vramGB : eval.vramGB;
-            g.vramMB = vramMB > 0 ? vramMB : (g.vramGB * 1024);
-            g.vendor = eval.vendor;
-            g.rtCapable = eval.rtCapable;
-            g.upscaler = eval.upscaler;
-            g.score = eval.score;
-            detectedGpus.push_back(g);
-        }
-
-        std::sort(detectedGpus.begin(), detectedGpus.end(), [](const GpuSpec& a, const GpuSpec& b) {
-            int aReal = isVirtualGpuAdapter(a.name) ? 0 : 1;
-            int bReal = isVirtualGpuAdapter(b.name) ? 0 : 1;
-            if (aReal != bReal) return aReal > bReal;
-
-            int aDisc = isIntegratedGpuAdapter(a.name, a.vramMB) ? 0 : 1;
-            int bDisc = isIntegratedGpuAdapter(b.name, b.vramMB) ? 0 : 1;
-            if (aDisc != bDisc) return aDisc > bDisc;
-
-            if (a.score != b.score) return a.score > b.score;
-            return a.vramMB > b.vramMB;
-        });
-
-        specs.allGpus = detectedGpus;
-        if (!detectedGpus.empty()) {
-            specs.gpu = detectedGpus.front();
-        }
-    }
-
-    // 4. Storage Drives via GetLogicalDriveStringsW + GetDriveTypeW (DRIVE_FIXED) + GetVolumeInformationW + GetDiskFreeSpaceExW
-    {
-        wchar_t driveStrings[512] = {};
-        DWORD len = GetLogicalDriveStringsW(511, driveStrings);
-        std::vector<DriveSpec> foundDrives;
-
-        const wchar_t* p = driveStrings;
-        while (len > 0 && *p != L'\0') {
-            std::wstring rootPath(p);
-            UINT dtype = GetDriveTypeW(rootPath.c_str());
-            if (dtype == DRIVE_FIXED) {
-                ULARGE_INTEGER freeBytesAvail = {}, totalBytes = {}, totalFreeBytes = {};
-                if (GetDiskFreeSpaceExW(rootPath.c_str(), &freeBytesAvail, &totalBytes, &totalFreeBytes) && totalBytes.QuadPart > 0) {
-                    wchar_t volName[128] = {};
-                    wchar_t fsName[64] = {};
-                    GetVolumeInformationW(rootPath.c_str(), volName, 128, nullptr, nullptr, nullptr, fsName, 64);
-
-                    std::string driveCode = wideToUtf8(rootPath.substr(0, 2));
-                    std::string volStr = trim(wideToUtf8(volName));
-                    std::string fsStr = trim(wideToUtf8(fsName));
-
-                    int totalGB = std::max(1, static_cast<int>(std::round(static_cast<double>(totalBytes.QuadPart) / (1024.0 * 1024.0 * 1024.0))));
-                    int freeGB = std::max(0, static_cast<int>(std::round(static_cast<double>(freeBytesAvail.QuadPart) / (1024.0 * 1024.0 * 1024.0))));
-                    int usedGB = std::max(0, totalGB - freeGB);
-                    int usedPct = std::min(100, std::max(0, static_cast<int>(std::round((static_cast<double>(usedGB) / totalGB) * 100.0))));
-
-                    DriveSpec d;
-                    d.drive = driveCode;
-                    d.label = volStr.empty() ? ("Local Disk (" + driveCode + ")") : (volStr + " (" + driveCode + ")");
-                    d.fsType = fsStr.empty() ? "NTFS" : fsStr;
-                    d.totalGB = totalGB;
-                    d.freeGB = freeGB;
-                    d.usedGB = usedGB;
-                    d.usedPercent = usedPct;
-                    foundDrives.push_back(d);
-                }
-            }
-            p += rootPath.size() + 1;
-        }
-
-        if (foundDrives.empty()) {
-            DriveSpec fallback;
-            foundDrives.push_back(fallback);
-        }
-
-        // Pick drive with most free space as primary gaming storage target
-        auto bestIt = std::max_element(foundDrives.begin(), foundDrives.end(), [](const DriveSpec& a, const DriveSpec& b) {
-            return a.freeGB < b.freeGB;
-        });
-
-        specs.drives = foundDrives;
-        specs.storage.drives = foundDrives;
-        specs.storage.allDrives = foundDrives;
-        specs.storage.drive = bestIt->drive;
-        specs.storage.primaryDrive = bestIt->drive;
-        specs.storage.label = bestIt->label;
-        specs.storage.freeGB = bestIt->freeGB;
-        specs.storage.totalGB = bestIt->totalGB;
-        specs.storage.usedGB = bestIt->usedGB;
-        specs.storage.usedPercent = bestIt->usedPercent;
-    }
-
-    // 5. Displays / Monitors via EnumDisplayDevicesW + EnumDisplaySettingsExW + Registry EDID 0xFC
-    {
-        std::vector<DisplaySpec> foundDisplays;
-        DISPLAY_DEVICEW adapter = {};
-        adapter.cb = sizeof(adapter);
-
-        for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &adapter, 0); ++i) {
-            if ((adapter.StateFlags & DISPLAY_DEVICE_ACTIVE) != 0) {
-                DEVMODEW dm = {};
-                dm.dmSize = sizeof(dm);
-                if (!EnumDisplaySettingsExW(adapter.DeviceName, ENUM_CURRENT_SETTINGS, &dm, 0)) {
-                    EnumDisplaySettingsExW(adapter.DeviceName, ENUM_REGISTRY_SETTINGS, &dm, 0);
-                }
-
-                DISPLAY_DEVICEW mon = {};
-                mon.cb = sizeof(mon);
-                std::string monitorName = "Generic PnP Monitor";
-                std::wstring monDeviceId;
-
-                if (EnumDisplayDevicesW(adapter.DeviceName, 0, &mon, 0)) {
-                    std::string devStr = trim(wideToUtf8(mon.DeviceString));
-                    if (!devStr.empty()) monitorName = devStr;
-                    monDeviceId = mon.DeviceID;
-                }
-
-                std::string edidName = lookupRegistryMonitorName(monDeviceId);
-                if (!edidName.empty()) {
-                    monitorName = edidName;
-                }
-
-                int width = dm.dmPelsWidth > 0 ? static_cast<int>(dm.dmPelsWidth) : 1920;
-                int height = dm.dmPelsHeight > 0 ? static_cast<int>(dm.dmPelsHeight) : 1080;
-                int hz = dm.dmDisplayFrequency > 1 ? static_cast<int>(dm.dmDisplayFrequency) : 60;
-                int bpp = dm.dmBitsPerPel > 0 ? static_cast<int>(dm.dmBitsPerPel) : 32;
-                bool isPrimary = (adapter.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) != 0;
-                std::string tier = determineResolutionTier(width, height);
-                std::string aspect = formatAspectRatio(width, height);
-
-                DisplaySpec d;
-                d.id = "display-" + std::to_string(foundDisplays.size() + 1);
-                d.name = monitorName;
-                d.monitorName = monitorName;
-                d.adapterString = trim(wideToUtf8(adapter.DeviceString));
-                d.deviceName = trim(wideToUtf8(adapter.DeviceName));
-                d.width = width;
-                d.height = height;
-                d.tier = tier;
-                d.resolutionLabel = std::to_string(width) + "x" + std::to_string(height) + " (" + tier + ")";
-                d.refreshRateHz = hz;
-                d.aspectRatio = aspect;
-                d.bitsPerPixel = bpp;
-                d.isPrimary = isPrimary;
-                d.vrrCapable = hz >= 75;
-                d.probeEngine = "native-cpp17-win32-probe";
-
-                if (isPrimary) {
-                    foundDisplays.insert(foundDisplays.begin(), d);
-                } else {
-                    foundDisplays.push_back(d);
-                }
-            }
-            ZeroMemory(&adapter, sizeof(adapter));
-            adapter.cb = sizeof(adapter);
-        }
-
-        if (foundDisplays.empty()) {
-            DisplaySpec fallback;
-            foundDisplays.push_back(fallback);
-        }
-        specs.displays = foundDisplays;
-        specs.display = foundDisplays.front();
-    }
-
 #else
-    // Linux Telemetry (/proc/cpuinfo, /proc/meminfo, statvfs, /sys/class/drm)
     specs.platform = "linux";
-    specs.os = "Linux Desktop";
-
-    {
-        std::ifstream cpuFile("/proc/cpuinfo");
-        std::string line, modelName;
-        int threads = 0;
-        double mhz = 3600.0;
-        while (std::getline(cpuFile, line)) {
-            if (line.find("model name") != std::string::npos && modelName.empty()) {
-                auto pos = line.find(':');
-                if (pos != std::string::npos) modelName = trim(line.substr(pos + 1));
-            } else if (line.find("processor") == 0) {
-                ++threads;
-            } else if (line.find("cpu MHz") != std::string::npos) {
-                auto pos = line.find(':');
-                if (pos != std::string::npos) mhz = std::atof(line.substr(pos + 1).c_str());
-            }
-        }
-        if (threads <= 0) threads = 8;
-        if (modelName.empty()) modelName = "Linux x86_64 Processor";
-        CpuBenchResult cpuEval = scoreCPU(modelName, threads);
-        specs.cpu.name = modelName;
-        specs.cpu.threads = threads;
-        specs.cpu.cores = cpuEval.estimatedCores;
-        specs.cpu.speedMHz = static_cast<int>(mhz);
-        specs.cpu.speedGHz = std::round((mhz / 1000.0) * 100.0) / 100.0;
-        specs.cpu.score = cpuEval.score;
-    }
-
-    {
-        std::ifstream memFile("/proc/meminfo");
-        std::string line;
-        long long totalKB = 16 * 1024 * 1024;
-        long long availKB = 8 * 1024 * 1024;
-        while (std::getline(memFile, line)) {
-            if (line.find("MemTotal:") == 0) {
-                std::sscanf(line.c_str(), "MemTotal: %lld", &totalKB);
-            } else if (line.find("MemAvailable:") == 0) {
-                std::sscanf(line.c_str(), "MemAvailable: %lld", &availKB);
-            }
-        }
-        specs.ram.totalGB = std::max(1, static_cast<int>(std::round(totalKB / (1024.0 * 1024.0))));
-        specs.ram.freeGB = std::max(0, static_cast<int>(std::round(availKB / (1024.0 * 1024.0))));
-        specs.ram.availGB = specs.ram.freeGB;
-        specs.ram.usedGB = std::max(0, specs.ram.totalGB - specs.ram.freeGB);
-    }
-
-    {
-        struct statvfs st = {};
-        DriveSpec d;
-        d.drive = "/";
-        d.label = "Root (/)";
-        d.fsType = "ext4";
-        if (statvfs("/", &st) == 0 && st.f_blocks > 0) {
-            d.totalGB = std::max(1, static_cast<int>(std::round((static_cast<double>(st.f_blocks) * st.f_frsize) / (1024.0 * 1024.0 * 1024.0))));
-            d.freeGB = std::max(0, static_cast<int>(std::round((static_cast<double>(st.f_bavail) * st.f_frsize) / (1024.0 * 1024.0 * 1024.0))));
-            d.usedGB = std::max(0, d.totalGB - d.freeGB);
-            d.usedPercent = std::min(100, std::max(0, static_cast<int>(std::round((static_cast<double>(d.usedGB) / d.totalGB) * 100.0))));
-        }
-        specs.drives.push_back(d);
-        specs.storage.drives = specs.drives;
-        specs.storage.allDrives = specs.drives;
-        specs.storage.drive = d.drive;
-        specs.storage.primaryDrive = d.drive;
-        specs.storage.label = d.label;
-        specs.storage.freeGB = d.freeGB;
-        specs.storage.totalGB = d.totalGB;
-        specs.storage.usedGB = d.usedGB;
-        specs.storage.usedPercent = d.usedPercent;
-    }
-
-    {
-        long long vramBytes = 0;
-        std::ifstream vramFile("/sys/class/drm/card0/device/mem_info_vram_total");
-        if (vramFile) vramFile >> vramBytes;
-        int vramGB = vramBytes > 0 ? std::max(1, static_cast<int>(std::round(vramBytes / (1024.0 * 1024.0 * 1024.0)))) : 8;
-        GpuBenchResult eval = scoreGPU("AMD Radeon RX 7600", vramGB);
-        specs.gpu.name = "Linux DRM GPU";
-        specs.gpu.vramGB = vramGB;
-        specs.gpu.vramMB = vramGB * 1024;
-        specs.gpu.vendor = eval.vendor;
-        specs.gpu.rtCapable = eval.rtCapable;
-        specs.gpu.upscaler = eval.upscaler;
-        specs.gpu.score = eval.score;
-        specs.allGpus.push_back(specs.gpu);
-    }
-
-    {
-        DisplaySpec d;
-        d.probeEngine = "native-cpp17-linux-drm";
-        specs.displays.push_back(d);
-        specs.display = d;
-    }
 #endif
-
+    specs.os = detectOsVersionString();
+    specs.cpu = detectCpuSpec();
+    specs.ram = detectRamSpec();
+    detectGpuSpecs(specs.gpu, specs.allGpus);
+    detectStorageSpecs(specs.storage, specs.drives);
+    detectDisplaySpecs(specs.display, specs.displays);
     specs.driverSuites = detectDriverSuites(specs);
 
     auto t1 = std::chrono::steady_clock::now();
@@ -2114,10 +2086,250 @@ inline std::string makeMonogram(const std::string& title) {
     return mono;
 }
 
+inline GameSpec makeInstalledGameSpec(const std::string& name, const std::string& appId,
+                                        const std::string& launcher, const std::string& installPathStr,
+                                        double sizeGB, uint64_t lastPlayed,
+                                        const std::vector<GameSpec>& catalog) {
+    std::string driveStr = (installPathStr.size() >= 2 && installPathStr[1] == ':') ? installPathStr.substr(0, 2) : "/";
+    const GameSpec* matched = findMatchingCatalogGame(appId, name, catalog);
+    GameSpec g;
+    if (matched) {
+        g = *matched;
+        g.matchedCatalogId = matched->id;
+    } else {
+        g.id = slugify(name);
+        g.title = name;
+        g.genre = "PC Game";
+        g.engine = launcher + " Installed Title";
+        g.releaseYear = 2024;
+        g.steamAppId = appId;
+        g.monogram = makeMonogram(name);
+        g.minCpu = "Intel Core i5-8400 or AMD Ryzen 5 1600";
+        g.minGpu = "NVIDIA GeForce GTX 1060 6GB or AMD Radeon RX 580 8GB";
+        g.minCpuScore = scoreCPU(g.minCpu).score;
+        g.minGpuScore = scoreGPU(g.minGpu, 6).score;
+        g.minRamGB = 8;
+        g.minVramGB = 4;
+        g.recCpu = "Intel Core i5-12400 or AMD Ryzen 5 5600";
+        g.recGpu = "NVIDIA GeForce RTX 3060 or AMD Radeon RX 6600 XT";
+        g.recCpuScore = scoreCPU(g.recCpu).score;
+        g.recGpuScore = scoreGPU(g.recGpu, 8).score;
+        g.recRamGB = 16;
+        g.recVramGB = 8;
+        g.storageGB = static_cast<int>(std::round(sizeGB));
+        g.ssdRequired = sizeGB >= 40.0;
+        g.supportsRT = sizeGB >= 70.0;
+        g.upscalers = { "DLSS", "FSR" };
+        g.baseRecFps = 75;
+        g.tuningTips = {
+            "Installed on " + driveStr + " (" + std::to_string(static_cast<int>(std::round(sizeGB))) + " GB via " + launcher + ").",
+            "Lower Shadow Quality and Volumetric Effects one step below Ultra for +15-20% FPS."
+        };
+    }
+
+    g.installed = true;
+    g.launcher = launcher;
+    g.installDir = installPathStr;
+    g.drive = driveStr;
+    g.sizeOnDiskGB = sizeGB;
+    g.lastPlayedTimestamp = lastPlayed;
+    if (!appId.empty()) g.steamAppId = appId;
+
+    g.isRunning = false;
+    g.wasRecentlyPlayed = (lastPlayed > 0);
+    g.playStatus = g.wasRecentlyPlayed ? "RECENTLY_PLAYED" : "INSTALLED";
+    g.playStatusLabel = g.wasRecentlyPlayed ? "RECENTLY PLAYED" : "INSTALLED";
+    return g;
+}
+
+inline std::vector<std::filesystem::path> collectSteamLibraryDirs() {
+    namespace fs = std::filesystem;
+    std::vector<fs::path> steamAppsDirs;
+    std::set<std::string> seenSteamDirs;
+
+    auto registerDir = [&](const fs::path& dir) {
+        std::error_code ec;
+        if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) return false;
+        fs::path canon = fs::weakly_canonical(dir, ec);
+        const fs::path& resolved = ec ? dir : canon;
+        std::string key = toLower(resolved.string());
+        if (!seenSteamDirs.insert(key).second) return false;
+        steamAppsDirs.push_back(resolved);
+        return true;
+    };
+
+    auto addSteamAppsDir = [&](const fs::path& dir) {
+        if (!registerDir(dir)) return;
+        std::error_code ec;
+        fs::path vdf = steamAppsDirs.back() / "libraryfolders.vdf";
+        if (!fs::exists(vdf, ec)) return;
+        std::vector<std::string> extraPaths;
+        parseAcfKeyValues(readFileText(vdf), &extraPaths);
+        for (const auto& ep : extraPaths) {
+            registerDir(fs::path(ep) / "steamapps");
+        }
+    };
+
+#ifdef _WIN32
+    auto tryRegSteam = [&](HKEY root, const char* subkey, const char* val) {
+        std::string p = readRegStringA(root, subkey, val);
+        if (!p.empty()) addSteamAppsDir(fs::path(p) / "steamapps");
+    };
+    tryRegSteam(HKEY_CURRENT_USER,  "Software\\Valve\\Steam", "SteamPath");
+    tryRegSteam(HKEY_LOCAL_MACHINE, "SOFTWARE\\WOW6432Node\\Valve\\Steam", "InstallPath");
+    tryRegSteam(HKEY_LOCAL_MACHINE, "SOFTWARE\\Valve\\Steam", "InstallPath");
+
+    const char* relSteamPaths[] = {
+        "Program Files (x86)\\Steam\\steamapps",
+        "Program Files\\Steam\\steamapps",
+        "Steam\\steamapps",
+        "SteamLibrary\\steamapps",
+        "Games\\Steam\\steamapps",
+        "Games\\SteamLibrary\\steamapps"
+    };
+    for (const auto& root : getFixedDriveRootsA()) {
+        for (const char* rel : relSteamPaths) {
+            addSteamAppsDir(fs::path(root + rel));
+        }
+    }
+#else
+    if (const char* homeEnv = std::getenv("HOME")) {
+        fs::path home(homeEnv);
+        addSteamAppsDir(home / ".steam/steam/steamapps");
+        addSteamAppsDir(home / ".local/share/Steam/steamapps");
+        addSteamAppsDir(home / ".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps");
+    }
+#endif
+    return steamAppsDirs;
+}
+
+inline void scanSteamManifests(const std::vector<GameSpec>& catalog,
+                               std::set<std::string>& seenKeys,
+                               std::vector<GameSpec>& results) {
+    namespace fs = std::filesystem;
+    for (const auto& saDir : collectSteamLibraryDirs()) {
+        std::error_code ec;
+        for (const auto& entry : fs::directory_iterator(saDir, ec)) {
+            if (!entry.is_regular_file(ec)) continue;
+            std::string fname = entry.path().filename().string();
+            if (fname.rfind("appmanifest_", 0) != 0 || fname.find(".acf") == std::string::npos) continue;
+
+            auto kv = parseAcfKeyValues(readFileText(entry.path()));
+            std::string appId = kv["appid"];
+            std::string name = trim(kv["name"]);
+            if (name.empty() || isNonGameManifestName(name)) continue;
+
+            std::string dedup = "steam:" + (appId.empty() ? toLower(name) : appId);
+            if (!seenKeys.insert(dedup).second) continue;
+
+            uint64_t sizeBytes = kv["sizeondisk"].empty() ? 0 : std::strtoull(kv["sizeondisk"].c_str(), nullptr, 10);
+            double sizeGB = bytesToSizeGB(sizeBytes, 25.0);
+
+            uint64_t lastPlayed = 0;
+            if (!kv["lastplayed"].empty()) lastPlayed = std::strtoull(kv["lastplayed"].c_str(), nullptr, 10);
+            else if (!kv["lastupdated"].empty()) lastPlayed = std::strtoull(kv["lastupdated"].c_str(), nullptr, 10);
+
+            std::string installDirName = !kv["installdir"].empty() ? kv["installdir"] : name;
+            fs::path installPath = saDir / "common" / installDirName;
+            results.push_back(makeInstalledGameSpec(name, appId, "Steam", installPath.string(), sizeGB, lastPlayed, catalog));
+        }
+    }
+}
+
+#ifdef _WIN32
+inline void scanEpicManifests(const std::vector<GameSpec>& catalog,
+                              std::set<std::string>& seenKeys,
+                              std::vector<GameSpec>& results) {
+    namespace fs = std::filesystem;
+    static const std::regex nameRe("\"DisplayName\"\\s*:\\s*\"([^\"]+)\"");
+    static const std::regex locRe("\"InstallLocation\"\\s*:\\s*\"([^\"]+)\"");
+    static const std::regex sizeRe("\"InstallSize\"\\s*:\\s*(\\d+)");
+
+    for (const auto& root : getFixedDriveRootsA()) {
+        fs::path epicDir = fs::path(root) / "ProgramData\\Epic\\EpicGamesLauncher\\Data\\Manifests";
+        std::error_code ec;
+        if (!fs::exists(epicDir, ec) || !fs::is_directory(epicDir, ec)) continue;
+
+        for (const auto& entry : fs::directory_iterator(epicDir, ec)) {
+            if (!entry.is_regular_file(ec) || entry.path().extension() != ".item") continue;
+            std::string raw = readFileText(entry.path());
+            if (raw.find("\"bIsIncompleteInstall\": true") != std::string::npos ||
+                raw.find("\"bIsIncompleteInstall\":true") != std::string::npos) {
+                continue;
+            }
+            std::smatch mName, mLoc, mSize;
+            if (!std::regex_search(raw, mName, nameRe)) continue;
+
+            std::string name = trim(mName[1].str());
+            if (name.empty() || isNonGameManifestName(name)) continue;
+            if (!seenKeys.insert("epic:" + toLower(name)).second) continue;
+
+            std::string loc = std::regex_search(raw, mLoc, locRe) ? mLoc[1].str() : (root + "Games\\" + name);
+            uint64_t sb = std::regex_search(raw, mSize, sizeRe) ? std::strtoull(mSize[1].str().c_str(), nullptr, 10) : 0;
+            results.push_back(makeInstalledGameSpec(name, "", "Epic Games", loc, bytesToSizeGB(sb, 30.0), 0, catalog));
+        }
+    }
+}
+
+inline void scanGogRegistryGames(const std::vector<GameSpec>& catalog,
+                                 std::set<std::string>& seenKeys,
+                                 std::vector<GameSpec>& results) {
+    namespace fs = std::filesystem;
+    HKEY hGogRoot = nullptr;
+    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SOFTWARE\\WOW6432Node\\GOG.com\\Games", 0, KEY_READ, &hGogRoot) != ERROR_SUCCESS) return;
+
+    char subName[256] = {};
+    for (DWORD idx = 0; ; ++idx) {
+        DWORD subLen = sizeof(subName);
+        if (RegEnumKeyExA(hGogRoot, idx, subName, &subLen, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS) break;
+
+        HKEY hGame = nullptr;
+        if (RegOpenKeyExA(hGogRoot, subName, 0, KEY_READ, &hGame) != ERROR_SUCCESS) continue;
+        std::string name = readOpenRegStringA(hGame, "gameName");
+        std::string gPath = readOpenRegStringA(hGame, "path");
+        RegCloseKey(hGame);
+
+        if (name.empty() || isNonGameManifestName(name)) continue;
+        std::error_code ec;
+        if (!gPath.empty() && !fs::exists(fs::path(gPath), ec)) continue;
+        if (!seenKeys.insert("gog:" + toLower(name)).second) continue;
+
+        results.push_back(makeInstalledGameSpec(name, "", "GOG", gPath, 25.0, 0, catalog));
+    }
+    RegCloseKey(hGogRoot);
+}
+
+inline void scanXboxGamesFolders(const std::vector<GameSpec>& catalog,
+                                 std::set<std::string>& seenKeys,
+                                 std::vector<GameSpec>& results) {
+    namespace fs = std::filesystem;
+    for (const auto& root : getFixedDriveRootsA()) {
+        fs::path xboxDir = fs::path(root) / "XboxGames";
+        std::error_code ec;
+        if (!fs::exists(xboxDir, ec) || !fs::is_directory(xboxDir, ec)) continue;
+        for (const auto& entry : fs::directory_iterator(xboxDir, ec)) {
+            if (!entry.is_directory(ec) || !fs::exists(entry.path() / "Content", ec)) continue;
+            std::string name = trim(entry.path().filename().string());
+            if (name.empty() || isNonGameManifestName(name)) continue;
+            if (!seenKeys.insert("xbox:" + toLower(name)).second) continue;
+            results.push_back(makeInstalledGameSpec(name, "", "Xbox App", entry.path().string(), 35.0, 0, catalog));
+        }
+    }
+}
+#endif
+
 inline std::vector<GameSpec> scanInstalledGames() {
-    // Strictly Non-Invasive Zero-Library-Access Mode:
-    // Never reads Steam libraryfolders.vdf, appmanifest_*.acf, Epic manifests, or running processes.
-    return {};
+    std::vector<GameSpec> catalog = getCatalogGames();
+    std::vector<GameSpec> results;
+    std::set<std::string> seenKeys;
+
+    scanSteamManifests(catalog, seenKeys, results);
+#ifdef _WIN32
+    scanEpicManifests(catalog, seenKeys, results);
+    scanGogRegistryGames(catalog, seenKeys, results);
+    scanXboxGamesFolders(catalog, seenKeys, results);
+#endif
+    return results;
 }
 
 inline int getPlayStatusSortRank(const GameSpec& g) {
@@ -2127,37 +2339,69 @@ inline int getPlayStatusSortRank(const GameSpec& g) {
     return 0;
 }
 
-inline std::vector<GameSpec> getMergedGameList(const std::vector<GameSpec>& customGames) {
+inline std::vector<GameSpec> getMergedGameList(const std::vector<GameSpec>& installedGames) {
     std::vector<GameSpec> catalog = getCatalogGames();
+    std::map<std::string, GameSpec> installedByCatalogId;
+    std::vector<GameSpec> extraInstalled;
+
+    for (const auto& inst : installedGames) {
+        if (!inst.matchedCatalogId.empty()) {
+            installedByCatalogId[inst.matchedCatalogId] = inst;
+        } else {
+            const GameSpec* matched = findMatchingCatalogGame(inst.steamAppId, inst.title, catalog);
+            if (matched) {
+                installedByCatalogId[matched->id] = inst;
+            } else {
+                extraInstalled.push_back(inst);
+            }
+        }
+    }
+
     std::vector<GameSpec> merged;
-    merged.reserve(catalog.size() + customGames.size());
+    merged.reserve(catalog.size() + extraInstalled.size());
 
     for (auto g : catalog) {
-        g.installed = false;
-        g.isRunning = false;
-        g.wasRecentlyPlayed = false;
-        g.playStatus = "CATALOG";
-        g.playStatusLabel = "CATALOG";
+        auto it = installedByCatalogId.find(g.id);
+        if (it != installedByCatalogId.end()) {
+            const GameSpec& inst = it->second;
+            g.installed = true;
+            g.launcher = inst.launcher;
+            g.installDir = inst.installDir;
+            g.drive = inst.drive;
+            g.sizeOnDiskGB = inst.sizeOnDiskGB;
+            g.lastPlayedTimestamp = inst.lastPlayedTimestamp;
+            g.isRunning = false;
+            g.wasRecentlyPlayed = inst.wasRecentlyPlayed;
+            g.playStatus = g.wasRecentlyPlayed ? "RECENTLY_PLAYED" : "INSTALLED";
+            g.playStatusLabel = g.wasRecentlyPlayed ? "RECENTLY PLAYED" : "INSTALLED";
+        } else {
+            g.installed = false;
+            g.isRunning = false;
+            g.wasRecentlyPlayed = false;
+            g.playStatus = "CATALOG";
+            g.playStatusLabel = "CATALOG";
+        }
         merged.push_back(std::move(g));
     }
 
-    for (auto custom : customGames) {
-        const GameSpec* matched = findMatchingCatalogGame(custom.steamAppId, custom.title, catalog);
-        if (!matched) {
-            custom.installed = false;
-            custom.isRunning = false;
-            custom.wasRecentlyPlayed = false;
-            if (custom.playStatus.empty()) custom.playStatus = "CATALOG";
-            if (custom.playStatusLabel.empty()) custom.playStatusLabel = "CATALOG";
-            merged.push_back(std::move(custom));
-        }
+    for (const auto& ext : extraInstalled) {
+        merged.push_back(ext);
     }
+
+    // Sort installed / recently played games to the very top of the list
+    std::stable_sort(merged.begin(), merged.end(), [](const GameSpec& a, const GameSpec& b) {
+        int rankA = getPlayStatusSortRank(a);
+        int rankB = getPlayStatusSortRank(b);
+        if (rankA != rankB) return rankA > rankB;
+        if (a.lastPlayedTimestamp != b.lastPlayedTimestamp) return a.lastPlayedTimestamp > b.lastPlayedTimestamp;
+        return false;
+    });
 
     return merged;
 }
 
 inline std::vector<GameSpec> getMergedGameList() {
-    return getMergedGameList(std::vector<GameSpec>{});
+    return getMergedGameList(scanInstalledGames());
 }
 
 // =============================================================================
@@ -2322,13 +2566,20 @@ inline std::string selectPreferredUpscaler(const SystemSpecs& specs, const GameS
     return game.upscalers.empty() ? "Native" : game.upscalers.front();
 }
 
-inline GameAnalysis analyzeGame(const SystemSpecs& specs, const GameSpec& game, int mode = OPT_MODE_OPTIMAL) {
-    GameAnalysis out;
-    out.gameId = game.id;
-    out.gameTitle = game.title;
-    out.mode = std::clamp(mode, 0, 3);
-    out.tuningTips = game.tuningTips;
+struct ModeTuningContext {
+    double gpuRatio = 1.0;
+    double cpuRatio = 1.0;
+    int vramGB = 8;
+    std::string upscalerName = "Native";
+    bool hasTemporalUpscaler = false;
+    bool supportsFG = false;
+    int baselineScreenFps = 60;
+    int vrrCapTarget = 60;
+    bool isHighHzScreen = false;
+    std::string displayTier = "1080p";
+};
 
+inline void evaluateComponentSpecs(const SystemSpecs& specs, const GameSpec& game, GameAnalysis& out) {
     out.cpuStatus = evaluateComponentTier(specs.cpu.score, game.minCpuScore, game.recCpuScore);
     out.gpuStatus = evaluateComponentTier(specs.gpu.score, game.minGpuScore, game.recGpuScore);
     out.ramStatus = evaluateComponentTier(specs.ram.totalGB, game.minRamGB, game.recRamGB);
@@ -2354,7 +2605,6 @@ inline GameAnalysis analyzeGame(const SystemSpecs& specs, const GameSpec& game, 
     out.ramEval = { "RAM", out.ramStatus, std::to_string(specs.ram.totalGB) + " GB", std::to_string(game.minRamGB) + " GB", std::to_string(game.recRamGB) + " GB", specs.ram.totalGB, game.minRamGB, game.recRamGB, tierRankIndex(out.ramStatus) >= 1, tierRankIndex(out.ramStatus) >= 2 };
     out.storageEval = { "Storage", out.storageStatus, std::to_string(specs.storage.freeGB) + " GB Free (" + specs.storage.drive + ")", std::to_string(game.storageGB) + " GB", std::to_string(game.storageGB) + " GB", specs.storage.freeGB, game.storageGB, game.storageGB, out.storagePass, out.storagePass };
 
-    // Bottleneck detection
     struct RatioItem { std::string comp; double ratio; std::string detail; };
     std::vector<RatioItem> ratios = {
         { "GPU Compute", static_cast<double>(specs.gpu.score) / std::max(1, game.recGpuScore), specs.gpu.name },
@@ -2371,183 +2621,155 @@ inline GameAnalysis analyzeGame(const SystemSpecs& specs, const GameSpec& game, 
     } else {
         out.bottleneckNote = "All components meet or exceed Recommended specs! At higher resolutions/settings, " + ratios.front().comp + " (" + ratios.front().detail + ") will be the first component fully utilized.";
     }
+}
 
-    const DisplaySpec& disp = specs.display;
-    out.screenWidth = disp.width > 0 ? disp.width : 1920;
-    out.screenHeight = disp.height > 0 ? disp.height : 1080;
-    out.refreshRateHz = disp.refreshRateHz > 0 ? disp.refreshRateHz : 60;
-    out.monitorName = disp.name.empty() ? "Primary Display" : disp.name;
+inline double applyFullFpsMode(const SystemSpecs& specs, const ModeTuningContext& ctx, GameAnalysis& out) {
+    out.modeId = "full_fps";
+    out.modeLabel = "Full FPS (Max Hz Competitive)";
+    out.preset = (out.overallTier == "EXCEEDS_RECOMMENDED") ? "Medium / Competitive High" : "Low / Competitive";
+    out.upscalingMode = ctx.hasTemporalUpscaler
+        ? (ctx.baselineScreenFps < out.refreshRateHz * 0.75 ? (ctx.upscalerName + " - Performance") : (ctx.upscalerName + " - Balanced"))
+        : "85% Render Scale";
+    out.textures = ctx.vramGB >= 8 ? "High (Zero FPS Cost)" : (ctx.vramGB >= 6 ? "Medium" : "Low");
+    out.shadows = "Low";
+    out.rayTracing = "Off (Disabled for Max FPS & Lowest Latency)";
+    out.frameGen = (ctx.supportsFG && ctx.isHighHzScreen && ctx.baselineScreenFps >= 55)
+        ? ("On (Target " + std::to_string(out.refreshRateHz) + "Hz Saturation)")
+        : "Off (Lowest Input Latency)";
+    out.qualityScore = 64;
+    out.targetFpsWindow = std::to_string(std::min(out.refreshRateHz, std::max(90, out.refreshRateHz - 10))) + "+ FPS (Max " + std::to_string(out.refreshRateHz) + "Hz)";
+    out.fpsCapAdvice = ctx.isHighHzScreen
+        ? ("Cap at " + std::to_string(out.refreshRateHz - 3) + " FPS + " + (specs.gpu.vendor == "nvidia" ? "NVIDIA Reflex (+Boost)" : "AMD Anti-Lag 2") + " to saturate " + std::to_string(out.refreshRateHz) + "Hz VRR")
+        : ("Uncapped or " + std::to_string(out.refreshRateHz * 2) + " FPS cap for minimum frame delivery latency");
+    out.summary = "Tuned for maximum framerate and lowest input latency on " + out.monitorName + " (" + std::to_string(out.screenWidth) + "x" + std::to_string(out.screenHeight) + " @ " + std::to_string(out.refreshRateHz) + "Hz).";
+    return (out.frameGen.rfind("On", 0) == 0) ? 1.52 : 1.34;
+}
 
-    double gpuRatio = static_cast<double>(specs.gpu.score) / std::max(15, game.recGpuScore);
-    double cpuRatio = static_cast<double>(specs.cpu.score) / std::max(15, game.recCpuScore);
-    int vramGB = specs.gpu.vramGB;
-    std::string upscalerName = selectPreferredUpscaler(specs, game);
-    bool hasTemporalUpscaler = (upscalerName != "Native");
-    bool supportsFG = (specs.gpu.upscaler.find("3") != std::string::npos || specs.gpu.upscaler.find("4") != std::string::npos) && vramGB >= 8;
+inline double applyBalancedMode(const ModeTuningContext& ctx, GameAnalysis& out) {
+    out.modeId = "balanced";
+    out.modeLabel = "Balanced (FPS & Quality)";
+    out.preset = (out.overallTier == "BELOW_MINIMUM") ? "Low / Medium" : (out.overallTier == "MEETS_MINIMUM" ? "Medium" : "High");
+    out.upscalingMode = ctx.hasTemporalUpscaler ? (ctx.upscalerName + " - Quality") : "Off (Native 100%)";
+    out.textures = ctx.vramGB >= 10 ? "Ultra" : (ctx.vramGB >= 8 ? "High" : "Medium");
+    out.shadows = (out.overallTier == "BELOW_MINIMUM") ? "Low" : "Medium";
+    out.rayTracing = "Off (Rasterized High Lighting)";
+    out.frameGen = (ctx.supportsFG && ctx.isHighHzScreen) ? "Optional (Enable for 100+ FPS smoothness)" : "Off";
+    out.qualityScore = 82;
+    out.targetFpsWindow = ctx.isHighHzScreen ? "75 - 120 FPS" : "60 - 75 FPS";
+    out.fpsCapAdvice = "Lock at " + std::to_string(std::min(ctx.vrrCapTarget, 120)) + " FPS with VRR enabled for consistent frame times";
+    out.summary = "Balanced sweet-spot between crisp High visuals and smooth " + out.targetFpsWindow + " gameplay at " + std::to_string(out.screenWidth) + "x" + std::to_string(out.screenHeight) + ".";
+    return ctx.hasTemporalUpscaler ? 1.15 : 1.06;
+}
 
-    double screenResFactor = getResolutionFactorForPixels(out.screenWidth, out.screenHeight);
-    int baselineScreenFps = computeFpsEstimate(specs, game, screenResFactor, 1.0).avg;
-    int vrrCapTarget = out.refreshRateHz >= 100 ? out.refreshRateHz - 4 : out.refreshRateHz;
-    bool isHighHzScreen = out.refreshRateHz >= 120;
-
-    out.targetResolution = std::to_string(out.screenWidth) + "x" + std::to_string(out.screenHeight) + " (" + disp.tier + " @ " + std::to_string(out.refreshRateHz) + "Hz)";
-    double fpsMultiplier = 1.0;
-
-    if (out.mode == OPT_MODE_FULL_FPS) {
-        out.modeId = "full_fps";
-        out.modeLabel = "Full FPS (Max Hz Competitive)";
-        out.preset = (out.overallTier == "EXCEEDS_RECOMMENDED") ? "Medium / Competitive High" : "Low / Competitive";
-        out.upscalingMode = hasTemporalUpscaler
-            ? (baselineScreenFps < out.refreshRateHz * 0.75 ? (upscalerName + " - Performance") : (upscalerName + " - Balanced"))
-            : "85% Render Scale";
-        out.textures = vramGB >= 8 ? "High (Zero FPS Cost)" : (vramGB >= 6 ? "Medium" : "Low");
-        out.shadows = "Low";
-        out.rayTracing = "Off (Disabled for Max FPS & Lowest Latency)";
-        out.frameGen = (supportsFG && isHighHzScreen && baselineScreenFps >= 55)
-            ? ("On (Target " + std::to_string(out.refreshRateHz) + "Hz Saturation)")
-            : "Off (Lowest Input Latency)";
-        fpsMultiplier = (out.frameGen.rfind("On", 0) == 0) ? 1.52 : 1.34;
-        out.qualityScore = 64;
-        out.targetFpsWindow = std::to_string(std::min(out.refreshRateHz, std::max(90, out.refreshRateHz - 10))) + "+ FPS (Max " + std::to_string(out.refreshRateHz) + "Hz)";
-        out.fpsCapAdvice = isHighHzScreen
-            ? ("Cap at " + std::to_string(out.refreshRateHz - 3) + " FPS + " + (specs.gpu.vendor == "nvidia" ? "NVIDIA Reflex (+Boost)" : "AMD Anti-Lag 2") + " to saturate " + std::to_string(out.refreshRateHz) + "Hz VRR")
-            : ("Uncapped or " + std::to_string(out.refreshRateHz * 2) + " FPS cap for minimum frame delivery latency");
-        out.summary = "Tuned for maximum framerate and lowest input latency on " + out.monitorName + " (" + std::to_string(out.screenWidth) + "x" + std::to_string(out.screenHeight) + " @ " + std::to_string(out.refreshRateHz) + "Hz).";
-    } else if (out.mode == OPT_MODE_BALANCED) {
-        out.modeId = "balanced";
-        out.modeLabel = "Balanced (FPS & Quality)";
-        out.preset = (out.overallTier == "BELOW_MINIMUM") ? "Low / Medium" : (out.overallTier == "MEETS_MINIMUM" ? "Medium" : "High");
-        out.upscalingMode = hasTemporalUpscaler ? (upscalerName + " - Quality") : "Off (Native 100%)";
-        out.textures = vramGB >= 10 ? "Ultra" : (vramGB >= 8 ? "High" : "Medium");
-        out.shadows = (out.overallTier == "BELOW_MINIMUM") ? "Low" : "Medium";
-        out.rayTracing = "Off (Rasterized High Lighting)";
-        out.frameGen = (supportsFG && isHighHzScreen) ? "Optional (Enable for 100+ FPS smoothness)" : "Off";
-        fpsMultiplier = hasTemporalUpscaler ? 1.15 : 1.06;
-        out.qualityScore = 82;
-        out.targetFpsWindow = isHighHzScreen ? "75 - 120 FPS" : "60 - 75 FPS";
-        out.fpsCapAdvice = "Lock at " + std::to_string(std::min(vrrCapTarget, 120)) + " FPS with VRR enabled for consistent frame times";
-        out.summary = "Balanced sweet-spot between crisp High visuals and smooth " + out.targetFpsWindow + " gameplay at " + std::to_string(out.screenWidth) + "x" + std::to_string(out.screenHeight) + ".";
-    } else if (out.mode == OPT_MODE_QUALITY) {
-        out.modeId = "quality_30_60";
-        out.modeLabel = "Quality (30-60 FPS Cinematic)";
-        if (out.overallTier == "BELOW_MINIMUM") {
-            out.preset = "Medium (Cinematic Floor)";
-            out.upscalingMode = hasTemporalUpscaler ? (upscalerName + " - Quality") : "90% Render Scale";
-            out.textures = vramGB >= 6 ? "Medium" : "Low";
-            out.shadows = "Medium";
-            out.rayTracing = "Off";
-            fpsMultiplier = 0.92;
-            out.qualityScore = 76;
-        } else if (out.overallTier == "MEETS_MINIMUM") {
-            out.preset = "High";
-            out.upscalingMode = hasTemporalUpscaler ? (upscalerName + " - Quality") : "Off (Native 100%)";
-            out.textures = vramGB >= 8 ? "High" : "Medium";
-            out.shadows = "High";
-            out.rayTracing = "Off";
-            fpsMultiplier = 0.88;
-            out.qualityScore = 86;
-        } else {
-            out.preset = "Ultra";
-            bool needsQualityUpscale = (baselineScreenFps * 0.78 < 38.0) && hasTemporalUpscaler;
-            out.upscalingMode = needsQualityUpscale
-                ? (upscalerName + " - Quality")
-                : (hasTemporalUpscaler ? ("Off (Native " + disp.tier + ") / " + upscalerName + " Native AA") : ("Off (Native " + disp.tier + ")"));
-            out.textures = vramGB >= 10 ? "Ultra" : "High (Safe for 8GB VRAM)";
-            out.shadows = "Ultra";
-            out.rayTracing = (game.supportsRT && specs.gpu.rtCapable && vramGB >= 8 && baselineScreenFps >= 55)
-                ? (vramGB >= 12 ? "High (Ray-Traced GI & Reflections)" : "Medium (RT Reflections)")
-                : "Off";
-            fpsMultiplier = (out.rayTracing != "Off") ? 0.72 : (needsQualityUpscale ? 0.90 : 0.82);
-            out.qualityScore = (out.rayTracing != "Off") ? 98 : 94;
-        }
-        out.frameGen = "Off (Native Cinematic Frame Pacing)";
-        out.targetFpsWindow = "30 - 60 FPS (Cinematic Fidelity)";
-        out.fpsCapAdvice = (baselineScreenFps * fpsMultiplier >= 58.0)
-            ? "Lock at 60 FPS (16.6ms frame-time) for rock-steady cinematic presentation"
-            : "Lock at 40 FPS (on 120Hz+ VRR screen) or 30/45 FPS for zero frame-time judder";
-        out.summary = "Maximizes Ultra/High visual fidelity at " + std::to_string(out.screenWidth) + "x" + std::to_string(out.screenHeight) + " while maintaining a stable 30-60 FPS cinematic target.";
+inline double applyQualityMode(const SystemSpecs& specs, const GameSpec& game, const ModeTuningContext& ctx, GameAnalysis& out) {
+    out.modeId = "quality_30_60";
+    out.modeLabel = "Quality (30-60 FPS Cinematic)";
+    double fpsMultiplier = 0.88;
+    if (out.overallTier == "BELOW_MINIMUM") {
+        out.preset = "Medium (Cinematic Floor)";
+        out.upscalingMode = ctx.hasTemporalUpscaler ? (ctx.upscalerName + " - Quality") : "90% Render Scale";
+        out.textures = ctx.vramGB >= 6 ? "Medium" : "Low";
+        out.shadows = "Medium";
+        out.rayTracing = "Off";
+        fpsMultiplier = 0.92;
+        out.qualityScore = 76;
+    } else if (out.overallTier == "MEETS_MINIMUM") {
+        out.preset = "High";
+        out.upscalingMode = ctx.hasTemporalUpscaler ? (ctx.upscalerName + " - Quality") : "Off (Native 100%)";
+        out.textures = ctx.vramGB >= 8 ? "High" : "Medium";
+        out.shadows = "High";
+        out.rayTracing = "Off";
+        fpsMultiplier = 0.88;
+        out.qualityScore = 86;
     } else {
-        out.modeId = "optimal";
-        out.modeLabel = "Optimal (Rig + Screen Balance)";
-        if (out.overallTier == "BELOW_MINIMUM") {
-            out.targetResolution = std::to_string(out.screenWidth) + "x" + std::to_string(out.screenHeight) + " (or 1280x720)";
-            out.preset = "Low";
-            out.upscalingMode = hasTemporalUpscaler ? (upscalerName + " - Performance") : "75% Render Scale";
-            out.textures = vramGB >= 6 ? "Medium" : "Low";
-            out.shadows = "Low";
-            out.rayTracing = "Off";
-            out.frameGen = "Off";
-            fpsMultiplier = 1.25;
-            out.qualityScore = 60;
-        } else if (out.overallTier == "MEETS_MINIMUM") {
-            out.preset = "Medium";
-            out.upscalingMode = hasTemporalUpscaler ? (upscalerName + " - Quality") : "Off (Native)";
-            out.textures = vramGB >= 8 ? "High" : "Medium";
-            out.shadows = "Medium";
-            out.rayTracing = "Off";
-            out.frameGen = "Off";
-            fpsMultiplier = 1.12;
-            out.qualityScore = 75;
-        } else if (out.overallTier == "MEETS_RECOMMENDED") {
-            out.preset = "High";
-            out.upscalingMode = ((gpuRatio >= 1.15 && !isHighHzScreen) || !hasTemporalUpscaler) ? "Off (Native 100%)" : (upscalerName + " - Quality");
-            out.textures = vramGB >= 8 ? "High" : "Medium";
-            out.shadows = (isHighHzScreen && baselineScreenFps < 90) ? "Medium / High" : "High";
-            out.rayTracing = "Off";
-            out.frameGen = (supportsFG && isHighHzScreen) ? ("Optional (Enable for " + std::to_string(out.refreshRateHz) + "Hz monitor)") : "Off";
-            fpsMultiplier = (out.upscalingMode.find("Quality") != std::string::npos) ? 1.12 : 1.0;
-            out.qualityScore = 85;
-        } else {
-            if (gpuRatio >= 1.45 && vramGB >= 12) {
-                out.preset = "Ultra";
-                out.upscalingMode = (hasTemporalUpscaler && (isHighHzScreen || disp.tier != "1080p")) ? (upscalerName + " - Quality") : "Off (Native)";
-                out.textures = "Ultra";
-                out.shadows = "High / Ultra";
-                out.rayTracing = (game.supportsRT && specs.gpu.rtCapable && !isHighHzScreen) ? "Medium / High" : "Off";
-                out.frameGen = (supportsFG && isHighHzScreen) ? ("On (for 100-" + std::to_string(out.refreshRateHz) + " FPS smoothness)") : "Off";
-                fpsMultiplier = 1.05;
-                out.qualityScore = 93;
-            } else {
-                out.preset = "High / Ultra Custom";
-                out.upscalingMode = (gpuRatio >= 1.25 && !isHighHzScreen) ? "Off (Native) at 1080p / Quality at 1440p" : (upscalerName + " - Quality");
-                out.textures = vramGB >= 10 ? "Ultra" : "High (Safe for 8GB VRAM)";
-                out.shadows = "High";
-                out.rayTracing = (game.supportsRT && specs.gpu.rtCapable && gpuRatio >= 1.5 && !isHighHzScreen) ? "Low / Medium" : "Off (Recommended for max FPS)";
-                if (supportsFG && isHighHzScreen) {
-                    out.frameGen = "On (for 100-" + std::to_string(out.refreshRateHz) + " FPS smoothness)";
-                    fpsMultiplier = 1.22;
-                } else {
-                    out.frameGen = "Off";
-                    fpsMultiplier = 1.08;
-                }
-                out.qualityScore = 88;
-            }
-        }
-        out.targetFpsWindow = isHighHzScreen ? ("80 - " + std::to_string(out.refreshRateHz) + " FPS") : "60+ FPS";
-        out.fpsCapAdvice = isHighHzScreen
-            ? ("Enable VRR (FreeSync/G-Sync) + cap at " + std::to_string(vrrCapTarget) + " FPS on " + out.monitorName + " (" + std::to_string(out.refreshRateHz) + "Hz)")
-            : ("Lock at " + std::to_string(out.refreshRateHz) + " FPS or enable VRR for tear-free pacing");
-        out.summary = "Auto-tuned for " + specs.gpu.name + " (" + std::to_string(vramGB) + "GB) paired with your " + out.monitorName + " (" + std::to_string(out.screenWidth) + "x" + std::to_string(out.screenHeight) + " @ " + std::to_string(out.refreshRateHz) + "Hz).";
+        out.preset = "Ultra";
+        bool needsQualityUpscale = (ctx.baselineScreenFps * 0.78 < 38.0) && ctx.hasTemporalUpscaler;
+        out.upscalingMode = needsQualityUpscale
+            ? (ctx.upscalerName + " - Quality")
+            : (ctx.hasTemporalUpscaler ? ("Off (Native " + ctx.displayTier + ") / " + ctx.upscalerName + " Native AA") : ("Off (Native " + ctx.displayTier + ")"));
+        out.textures = ctx.vramGB >= 10 ? "Ultra" : "High (Safe for 8GB VRAM)";
+        out.shadows = "Ultra";
+        out.rayTracing = (game.supportsRT && specs.gpu.rtCapable && ctx.vramGB >= 8 && ctx.baselineScreenFps >= 55)
+            ? (ctx.vramGB >= 12 ? "High (Ray-Traced GI & Reflections)" : "Medium (RT Reflections)")
+            : "Off";
+        fpsMultiplier = (out.rayTracing != "Off") ? 0.72 : (needsQualityUpscale ? 0.90 : 0.82);
+        out.qualityScore = (out.rayTracing != "Off") ? 98 : 94;
     }
+    out.frameGen = "Off (Native Cinematic Frame Pacing)";
+    out.targetFpsWindow = "30 - 60 FPS (Cinematic Fidelity)";
+    out.fpsCapAdvice = (ctx.baselineScreenFps * fpsMultiplier >= 58.0)
+        ? "Lock at 60 FPS (16.6ms frame-time) for rock-steady cinematic presentation"
+        : "Lock at 40 FPS (on 120Hz+ VRR screen) or 30/45 FPS for zero frame-time judder";
+    out.summary = "Maximizes Ultra/High visual fidelity at " + std::to_string(out.screenWidth) + "x" + std::to_string(out.screenHeight) + " while maintaining a stable 30-60 FPS cinematic target.";
+    return fpsMultiplier;
+}
 
-    out.fps1080p = computeFpsEstimate(specs, game, 1.0, fpsMultiplier);
-    out.fps1440p = computeFpsEstimate(specs, game, 1.35, fpsMultiplier);
-    out.fps4k    = computeFpsEstimate(specs, game, 2.05, fpsMultiplier);
-    out.estimatedScreenFps = computeFpsEstimate(specs, game, screenResFactor, fpsMultiplier);
-    out.screenFpsAvg = out.estimatedScreenFps.avg;
+inline double applyOptimalMode(const SystemSpecs& specs, const GameSpec& game, const ModeTuningContext& ctx, GameAnalysis& out) {
+    out.modeId = "optimal";
+    out.modeLabel = "Optimal (Rig + Screen Balance)";
+    double fpsMultiplier = 1.0;
+    if (out.overallTier == "BELOW_MINIMUM") {
+        out.targetResolution = std::to_string(out.screenWidth) + "x" + std::to_string(out.screenHeight) + " (or 1280x720)";
+        out.preset = "Low";
+        out.upscalingMode = ctx.hasTemporalUpscaler ? (ctx.upscalerName + " - Performance") : "75% Render Scale";
+        out.textures = ctx.vramGB >= 6 ? "Medium" : "Low";
+        out.shadows = "Low";
+        out.rayTracing = "Off";
+        out.frameGen = "Off";
+        fpsMultiplier = 1.25;
+        out.qualityScore = 60;
+    } else if (out.overallTier == "MEETS_MINIMUM") {
+        out.preset = "Medium";
+        out.upscalingMode = ctx.hasTemporalUpscaler ? (ctx.upscalerName + " - Quality") : "Off (Native)";
+        out.textures = ctx.vramGB >= 8 ? "High" : "Medium";
+        out.shadows = "Medium";
+        out.rayTracing = "Off";
+        out.frameGen = "Off";
+        fpsMultiplier = 1.12;
+        out.qualityScore = 75;
+    } else if (out.overallTier == "MEETS_RECOMMENDED") {
+        out.preset = "High";
+        out.upscalingMode = ((ctx.gpuRatio >= 1.15 && !ctx.isHighHzScreen) || !ctx.hasTemporalUpscaler) ? "Off (Native 100%)" : (ctx.upscalerName + " - Quality");
+        out.textures = ctx.vramGB >= 8 ? "High" : "Medium";
+        out.shadows = (ctx.isHighHzScreen && ctx.baselineScreenFps < 90) ? "Medium / High" : "High";
+        out.rayTracing = "Off";
+        out.frameGen = (ctx.supportsFG && ctx.isHighHzScreen) ? ("Optional (Enable for " + std::to_string(out.refreshRateHz) + "Hz monitor)") : "Off";
+        fpsMultiplier = (out.upscalingMode.find("Quality") != std::string::npos) ? 1.12 : 1.0;
+        out.qualityScore = 85;
+    } else if (ctx.gpuRatio >= 1.45 && ctx.vramGB >= 12) {
+        out.preset = "Ultra";
+        out.upscalingMode = (ctx.hasTemporalUpscaler && (ctx.isHighHzScreen || ctx.displayTier != "1080p")) ? (ctx.upscalerName + " - Quality") : "Off (Native)";
+        out.textures = "Ultra";
+        out.shadows = "High / Ultra";
+        out.rayTracing = (game.supportsRT && specs.gpu.rtCapable && !ctx.isHighHzScreen) ? "Medium / High" : "Off";
+        out.frameGen = (ctx.supportsFG && ctx.isHighHzScreen) ? ("On (for 100-" + std::to_string(out.refreshRateHz) + " FPS smoothness)") : "Off";
+        fpsMultiplier = 1.05;
+        out.qualityScore = 93;
+    } else {
+        out.preset = "High / Ultra Custom";
+        out.upscalingMode = (ctx.gpuRatio >= 1.25 && !ctx.isHighHzScreen) ? "Off (Native) at 1080p / Quality at 1440p" : (ctx.upscalerName + " - Quality");
+        out.textures = ctx.vramGB >= 10 ? "Ultra" : "High (Safe for 8GB VRAM)";
+        out.shadows = "High";
+        out.rayTracing = (game.supportsRT && specs.gpu.rtCapable && ctx.gpuRatio >= 1.5 && !ctx.isHighHzScreen) ? "Low / Medium" : "Off (Recommended for max FPS)";
+        out.frameGen = (ctx.supportsFG && ctx.isHighHzScreen) ? ("On (for 100-" + std::to_string(out.refreshRateHz) + " FPS smoothness)") : "Off";
+        fpsMultiplier = (ctx.supportsFG && ctx.isHighHzScreen) ? 1.22 : 1.08;
+        out.qualityScore = 88;
+    }
+    out.targetFpsWindow = ctx.isHighHzScreen ? ("80 - " + std::to_string(out.refreshRateHz) + " FPS") : "60+ FPS";
+    out.fpsCapAdvice = ctx.isHighHzScreen
+        ? ("Enable VRR (FreeSync/G-Sync) + cap at " + std::to_string(ctx.vrrCapTarget) + " FPS on " + out.monitorName + " (" + std::to_string(out.refreshRateHz) + "Hz)")
+        : ("Lock at " + std::to_string(out.refreshRateHz) + " FPS or enable VRR for tear-free pacing");
+    out.summary = "Auto-tuned for " + specs.gpu.name + " (" + std::to_string(ctx.vramGB) + "GB) paired with your " + out.monitorName + " (" + std::to_string(out.screenWidth) + "x" + std::to_string(out.screenHeight) + " @ " + std::to_string(out.refreshRateHz) + "Hz).";
+    return fpsMultiplier;
+}
 
-    out.refreshSaturationPct = std::min(100, std::max(10, static_cast<int>(std::round((static_cast<double>(out.estimatedScreenFps.avg) / out.refreshRateHz) * 100.0))));
-    out.syncAdvice = out.refreshRateHz >= 100
-        ? ("Enable FreeSync / G-Sync VRR + " + std::string(specs.gpu.vendor == "nvidia" ? "NVIDIA Reflex" : "AMD Anti-Lag 2") + " and cap FPS at " + std::to_string(out.refreshRateHz - 4) + " FPS.")
-        : ("Use VRR or a " + std::to_string(out.refreshRateHz) + " FPS cap for tear-free frame pacing.");
-
-    // Build 8-Setting FPS/VRAM Impact Breakdown
+inline std::vector<SettingImpact> buildSettingImpacts(const SystemSpecs& specs, const GameSpec& game, const GameAnalysis& out, const ModeTuningContext& ctx) {
     int vramHeadroomGB = specs.gpu.vramGB - game.recVramGB;
-    int shadowFpsGain = (out.mode == OPT_MODE_FULL_FPS) ? 24 : (gpuRatio < 0.85 ? 22 : (gpuRatio < 1.15 ? 16 : 11));
+    int shadowFpsGain = (out.mode == OPT_MODE_FULL_FPS) ? 24 : (ctx.gpuRatio < 0.85 ? 22 : (ctx.gpuRatio < 1.15 ? 16 : 11));
     int shadowVramMB = (out.shadows.find("Low") != std::string::npos) ? 520 : ((out.shadows.find("Medium") != std::string::npos) ? 380 : 240);
 
-    std::string fogVal = (out.mode == OPT_MODE_FULL_FPS) ? "Low" : ((out.mode == OPT_MODE_QUALITY) ? "High / Ultra" : (gpuRatio >= 1.35 ? "High" : (gpuRatio >= 0.9 ? "Medium / High" : "Low / Medium")));
-    int fogFpsGain = (out.mode == OPT_MODE_FULL_FPS) ? 21 : (gpuRatio < 0.9 ? 19 : (gpuRatio < 1.2 ? 15 : 10));
+    std::string fogVal = (out.mode == OPT_MODE_FULL_FPS) ? "Low" : ((out.mode == OPT_MODE_QUALITY) ? "High / Ultra" : (ctx.gpuRatio >= 1.35 ? "High" : (ctx.gpuRatio >= 0.9 ? "Medium / High" : "Low / Medium")));
+    int fogFpsGain = (out.mode == OPT_MODE_FULL_FPS) ? 21 : (ctx.gpuRatio < 0.9 ? 19 : (ctx.gpuRatio < 1.2 ? 15 : 10));
 
     int rtFpsGain = (!game.supportsRT) ? 0 : (!specs.gpu.rtCapable ? 38 : (out.mode == OPT_MODE_QUALITY ? 22 : 34));
     int rtVramMB  = (!game.supportsRT) ? 0 : 1150;
@@ -2560,25 +2782,72 @@ inline GameAnalysis analyzeGame(const SystemSpecs& specs, const GameSpec& game, 
     int aoFpsGain = (out.mode == OPT_MODE_FULL_FPS) ? 12 : 8;
 
     int texFpsGain = vramHeadroomGB < 0 ? 18 : 3;
-    int texVramMB = vramGB >= 12 ? 1600 : (vramGB >= 8 ? 1050 : 650);
+    int texVramMB = ctx.vramGB >= 12 ? 1600 : (ctx.vramGB >= 8 ? 1050 : 650);
 
-    std::string crowdVal = (out.mode == OPT_MODE_FULL_FPS) ? "Low / Medium" : ((out.mode == OPT_MODE_QUALITY) ? "High / Ultra" : (cpuRatio >= 1.1 ? "High" : "Medium"));
-    int crowdFpsGain = (out.mode == OPT_MODE_FULL_FPS) ? 18 : (cpuRatio < 0.95 ? 16 : 11);
+    std::string crowdVal = (out.mode == OPT_MODE_FULL_FPS) ? "Low / Medium" : ((out.mode == OPT_MODE_QUALITY) ? "High / Ultra" : (ctx.cpuRatio >= 1.1 ? "High" : "Medium"));
+    int crowdFpsGain = (out.mode == OPT_MODE_FULL_FPS) ? 18 : (ctx.cpuRatio < 0.95 ? 16 : 11);
+    int fgFpsGain = (ctx.supportsFG && ctx.vramGB >= 8 && out.mode != OPT_MODE_QUALITY) ? 42 : 0;
 
-    int fgFpsGain = (supportsFG && vramGB >= 8 && out.mode != OPT_MODE_QUALITY) ? 42 : 0;
-
-    out.settingImpacts = {
+    return {
         { "Shadow Quality", out.shadows, shadowFpsGain, shadowVramMB, "Low", "Dropping Cascade Shadows from Ultra to " + out.shadows + " saves ~" + std::to_string(shadowFpsGain) + "% GPU time." },
         { "Volumetric Fog / Clouds", fogVal, fogFpsGain, 220, "Minimal", "Volumetric ray-marching is shader-heavy; " + fogVal + " gains +" + std::to_string(fogFpsGain) + "% FPS." },
         { "Ray Tracing", out.rayTracing, rtFpsGain, rtVramMB, game.supportsRT ? "Moderate" : "None", rtNote },
-        { "Upscaling (FSR/DLSS)", out.upscalingMode, upFpsGain, 420, "Minimal", upscalerName + " (" + out.upscalingMode + ") reduces shader load at " + std::to_string(out.screenWidth) + "x" + std::to_string(out.screenHeight) + "." },
+        { "Upscaling (FSR/DLSS)", out.upscalingMode, upFpsGain, 420, "Minimal", ctx.upscalerName + " (" + out.upscalingMode + ") reduces shader load at " + std::to_string(out.screenWidth) + "x" + std::to_string(out.screenHeight) + "." },
         { "Ambient Occlusion", aoVal, aoFpsGain, 160, "Low", aoVal + " balances contact shading depth and post-process cost." },
-        { "Texture Quality", out.textures, texFpsGain, texVramMB, vramHeadroomGB < 0 ? "Prevents Stutter" : "None (VRAM Bound)", "Configured for " + std::to_string(vramGB) + " GB VRAM pool (" + std::to_string(game.recVramGB) + " GB recommended)." },
+        { "Texture Quality", out.textures, texFpsGain, texVramMB, vramHeadroomGB < 0 ? "Prevents Stutter" : "None (VRAM Bound)", "Configured for " + std::to_string(ctx.vramGB) + " GB VRAM pool (" + std::to_string(game.recVramGB) + " GB recommended)." },
         { "Crowd / Foliage Density", crowdVal, crowdFpsGain, 210, "Low", "Tuned to " + crowdVal + " for " + specs.cpu.name + " (" + std::to_string(specs.cpu.threads) + " threads)." },
-        { "Frame Generation", out.frameGen, fgFpsGain, 360, "Minimal", supportsFG ? (specs.gpu.name + " supports " + specs.gpu.upscaler + " Frame Generation.") : "Use VRR / G-Sync / FreeSync pacing for lowest input latency." }
+        { "Frame Generation", out.frameGen, fgFpsGain, 360, "Minimal", ctx.supportsFG ? (specs.gpu.name + " supports " + specs.gpu.upscaler + " Frame Generation.") : "Use VRR / G-Sync / FreeSync pacing for lowest input latency." }
     };
-    out.perSettingImpact = out.settingImpacts;
+}
 
+inline GameAnalysis analyzeGame(const SystemSpecs& specs, const GameSpec& game, int mode = OPT_MODE_OPTIMAL) {
+    GameAnalysis out;
+    out.gameId = game.id;
+    out.gameTitle = game.title;
+    out.mode = std::clamp(mode, 0, 3);
+    out.tuningTips = game.tuningTips;
+
+    evaluateComponentSpecs(specs, game, out);
+
+    const DisplaySpec& disp = specs.display;
+    out.screenWidth = disp.width > 0 ? disp.width : 1920;
+    out.screenHeight = disp.height > 0 ? disp.height : 1080;
+    out.refreshRateHz = disp.refreshRateHz > 0 ? disp.refreshRateHz : 60;
+    out.monitorName = disp.name.empty() ? "Primary Display" : disp.name;
+    out.targetResolution = std::to_string(out.screenWidth) + "x" + std::to_string(out.screenHeight) + " (" + disp.tier + " @ " + std::to_string(out.refreshRateHz) + "Hz)";
+
+    double screenResFactor = getResolutionFactorForPixels(out.screenWidth, out.screenHeight);
+    ModeTuningContext ctx;
+    ctx.gpuRatio = static_cast<double>(specs.gpu.score) / std::max(15, game.recGpuScore);
+    ctx.cpuRatio = static_cast<double>(specs.cpu.score) / std::max(15, game.recCpuScore);
+    ctx.vramGB = specs.gpu.vramGB;
+    ctx.upscalerName = selectPreferredUpscaler(specs, game);
+    ctx.hasTemporalUpscaler = (ctx.upscalerName != "Native");
+    ctx.supportsFG = (specs.gpu.upscaler.find("3") != std::string::npos || specs.gpu.upscaler.find("4") != std::string::npos) && ctx.vramGB >= 8;
+    ctx.baselineScreenFps = computeFpsEstimate(specs, game, screenResFactor, 1.0).avg;
+    ctx.vrrCapTarget = out.refreshRateHz >= 100 ? out.refreshRateHz - 4 : out.refreshRateHz;
+    ctx.isHighHzScreen = out.refreshRateHz >= 120;
+    ctx.displayTier = disp.tier;
+
+    double fpsMultiplier = 1.0;
+    if (out.mode == OPT_MODE_FULL_FPS)       fpsMultiplier = applyFullFpsMode(specs, ctx, out);
+    else if (out.mode == OPT_MODE_BALANCED)  fpsMultiplier = applyBalancedMode(ctx, out);
+    else if (out.mode == OPT_MODE_QUALITY)   fpsMultiplier = applyQualityMode(specs, game, ctx, out);
+    else                                     fpsMultiplier = applyOptimalMode(specs, game, ctx, out);
+
+    out.fps1080p = computeFpsEstimate(specs, game, 1.0, fpsMultiplier);
+    out.fps1440p = computeFpsEstimate(specs, game, 1.35, fpsMultiplier);
+    out.fps4k    = computeFpsEstimate(specs, game, 2.05, fpsMultiplier);
+    out.estimatedScreenFps = computeFpsEstimate(specs, game, screenResFactor, fpsMultiplier);
+    out.screenFpsAvg = out.estimatedScreenFps.avg;
+
+    out.refreshSaturationPct = std::min(100, std::max(10, static_cast<int>(std::round((static_cast<double>(out.estimatedScreenFps.avg) / out.refreshRateHz) * 100.0))));
+    out.syncAdvice = out.refreshRateHz >= 100
+        ? ("Enable FreeSync / G-Sync VRR + " + std::string(specs.gpu.vendor == "nvidia" ? "NVIDIA Reflex" : "AMD Anti-Lag 2") + " and cap FPS at " + std::to_string(out.refreshRateHz - 4) + " FPS.")
+        : ("Use VRR or a " + std::to_string(out.refreshRateHz) + " FPS cap for tear-free frame pacing.");
+
+    out.settingImpacts = buildSettingImpacts(specs, game, out, ctx);
+    out.perSettingImpact = out.settingImpacts;
     return out;
 }
 
@@ -2639,18 +2908,189 @@ struct DriverAdvisorResult {
     std::string storageAdvice;
 };
 
+inline bool isCompetitiveGame(const GameSpec& game) {
+    std::string titleLow = toLower(game.title);
+    std::string genreLow = toLower(game.genre);
+    static const char* genreKeywords[] = { "shooter", "fps", "tactical", "esports", "battle royale" };
+    for (const char* kw : genreKeywords) {
+        if (genreLow.find(kw) != std::string::npos) return true;
+    }
+    static const char* titleKeywords[] = { "counter-strike", "cs2", "valorant", "apex", "warzone", "overwatch", "fortnite" };
+    for (const char* kw : titleKeywords) {
+        if (titleLow.find(kw) != std::string::npos) return true;
+    }
+    return false;
+}
+
+inline std::vector<DriverSettingRec> buildAmdDriverSettings(const SystemSpecs& specs, int mode, int hz, int capHz, bool vrr, bool isCompetitive) {
+    std::vector<DriverSettingRec> settings;
+    settings.push_back({
+        "Radeon Anti-Lag / Anti-Lag 2",
+        (mode == OPT_MODE_QUALITY) ? "Enabled (Anti-Lag)" : "Enabled (Anti-Lag 2 if supported)",
+        "Cuts input-to-photon latency with zero FPS penalty."
+    });
+
+    std::string chillVal = "Off";
+    std::string chillReason = "Uncapped FPS for minimum input latency in Full FPS mode.";
+    if (mode == OPT_MODE_QUALITY) {
+        chillVal = "Min: 30 / Max: " + std::to_string(std::min(60, capHz)) + " FPS";
+        chillReason = "Locks frame pacing to cinematic 30-60 FPS envelope.";
+    } else if (mode == OPT_MODE_OPTIMAL || mode == OPT_MODE_BALANCED) {
+        chillVal = vrr
+            ? ("Min: 48 / Max: " + std::to_string(capHz) + " FPS")
+            : ("Min: 60 / Max: " + std::to_string(hz) + " FPS");
+        chillReason = vrr
+            ? ("Caps 3 FPS below " + std::to_string(hz) + "Hz to stay inside FreeSync VRR window.")
+            : ("Matches " + std::to_string(hz) + "Hz refresh rate to reduce power & heat.");
+    }
+    settings.push_back({ "Radeon Chill", chillVal, chillReason });
+
+    settings.push_back({
+        "AMD FreeSync / VRR",
+        vrr ? "Enabled (AMD FreeSync)" : "Off (No VRR Display)",
+        vrr ? "Eliminates tearing without V-Sync input lag." : "Display reported fixed refresh rate."
+    });
+
+    bool allowAfmf = !isCompetitive && mode != OPT_MODE_FULL_FPS;
+    settings.push_back({
+        "AMD Fluid Motion Frames 2 (AFMF 2)",
+        allowAfmf ? "Auto (Enable if base FPS < 60)" : "Off",
+        allowAfmf ? "Boosts perceived smoothness on demanding AAA titles." : "Disabled to preserve raw responsiveness in fast/competitive play."
+    });
+
+    settings.push_back({
+        "Radeon Image Sharpening (RIS)",
+        (mode == OPT_MODE_FULL_FPS || mode == OPT_MODE_BALANCED) ? "Enabled (70-80%)" : "Enabled (50%)",
+        "Restores texture crispness when FSR upscaling is active (<1% cost)."
+    });
+
+    settings.push_back({
+        "Texture Filtering Quality",
+        (mode == OPT_MODE_FULL_FPS) ? "Performance" : ((mode == OPT_MODE_QUALITY) ? "High" : "Standard"),
+        "Balances anisotropic sharpness vs. shader bandwidth."
+    });
+
+    settings.push_back({
+        "Wait for Vertical Refresh",
+        "Always Off",
+        "Prevents driver-level V-Sync latency; rely on FreeSync + Chill cap."
+    });
+
+    std::string cpuLow = toLower(specs.cpu.name);
+    std::string gpuLow = toLower(specs.gpu.name);
+    bool hasRyzen5kPlus = false;
+    if (cpuLow.find("ryzen") != std::string::npos) {
+        static const char* ryzenSeries[] = { "5500", "5600", "5700", "5800", "5900", "5950", "7500", "7600", "7700", "7800", "7900", "7950", "9600", "9700", "9800" };
+        for (const char* s : ryzenSeries) {
+            if (cpuLow.find(s) != std::string::npos) { hasRyzen5kPlus = true; break; }
+        }
+    }
+    bool hasRx6kPlus = (gpuLow.find("rx 6") != std::string::npos || gpuLow.find("rx 7") != std::string::npos || gpuLow.find("rx 9") != std::string::npos);
+    settings.push_back({
+        "AMD Smart Access Memory (SAM)",
+        (hasRyzen5kPlus && hasRx6kPlus) ? "Enabled (Verify Above 4G + ReBAR in BIOS)" : "Check BIOS ReBAR Support",
+        (hasRyzen5kPlus && hasRx6kPlus) ? "Ryzen + RX 6000/7000 pairing gains 5-15% FPS via full VRAM BAR." : "Enable Resizable BAR in BIOS if supported."
+    });
+    return settings;
+}
+
+inline std::vector<DriverSettingRec> buildNvidiaDriverSettings(int mode, int hz, int capHz, bool vrr, bool isCompetitive) {
+    std::vector<DriverSettingRec> settings;
+    settings.push_back({
+        "Low Latency Mode / NVIDIA Reflex",
+        (mode == OPT_MODE_FULL_FPS || isCompetitive) ? "Ultra (or Reflex On + Boost)" : "On (or Reflex On)",
+        "Minimizes render queue depth and mouse-to-display latency."
+    });
+
+    std::string capVal = "Off (Uncapped)";
+    if (mode == OPT_MODE_QUALITY) capVal = "60 FPS";
+    else if (mode == OPT_MODE_OPTIMAL || mode == OPT_MODE_BALANCED) {
+        capVal = vrr ? (std::to_string(capHz) + " FPS (Hz - 3)") : (std::to_string(hz) + " FPS");
+    }
+    settings.push_back({
+        "Max Frame Rate",
+        capVal,
+        vrr ? ("Keeps frame rate inside G-Sync range below " + std::to_string(hz) + "Hz.") : "Aligns frame pacing with monitor refresh rate."
+    });
+
+    settings.push_back({
+        "Power Management Mode",
+        "Prefer Maximum Performance",
+        "Prevents GPU boost clock downclocking during light scenes (per-game profile)."
+    });
+
+    settings.push_back({
+        "Texture Filtering - Quality",
+        (mode == OPT_MODE_FULL_FPS) ? "High Performance" : ((mode == OPT_MODE_QUALITY) ? "High Quality" : "Quality"),
+        "Optimizes shader filtering overhead without visible shimmer."
+    });
+
+    settings.push_back({
+        "Vertical Sync (NVCP)",
+        (vrr && mode != OPT_MODE_FULL_FPS) ? "On (Paired with G-Sync + Cap)" : "Off",
+        vrr ? "NVCP V-Sync + G-Sync + Hz-3 cap eliminates tearing with zero V-Sync lag." : "Avoids double-buffer V-Sync latency."
+    });
+
+    settings.push_back({
+        "Shader Cache Size",
+        "10 GB",
+        "Prevents shader compilation stutter in DX12 / Unreal Engine 5 games."
+    });
+
+    settings.push_back({
+        "G-Sync / VRR",
+        vrr ? "Enabled (Fullscreen & Windowed)" : "Off (No VRR Display)",
+        vrr ? "Dynamic refresh synchronization for tear-free pacing." : "Display reported fixed refresh rate."
+    });
+    return settings;
+}
+
+inline std::vector<DriverSettingRec> buildIntelDriverSettings(int mode, int capHz, bool vrr, bool isCompetitive) {
+    return {
+        { "Resizable BAR", "Enabled (Mandatory for Arc)", "Intel Arc requires BIOS ReBAR + Above 4G Decoding for full performance." },
+        { "Low Latency Mode", (mode == OPT_MODE_FULL_FPS || isCompetitive) ? "On + Boost" : "On", "Reduces CPU-to-GPU frame queue latency." },
+        { "Adaptive Sync / VRR", vrr ? ("Enabled (Cap " + std::to_string(capHz) + " FPS)") : "Off (Fixed Refresh)", vrr ? "Synchronizes display refresh to frame output." : "Fixed refresh display detected." },
+        { "Texture Filtering", (mode == OPT_MODE_FULL_FPS) ? "Performance" : "Quality", "Balances anisotropic clarity and memory bandwidth." },
+        { "Smooth Sync", (mode == OPT_MODE_FULL_FPS) ? "Off" : "On (if tearing occurs)", "Reduces visible tearing on non-VRR monitors without full V-Sync stall." }
+    };
+}
+
+inline std::string buildStoragePlacementAdvice(const SystemSpecs& specs, const GameSpec& game) {
+    const auto& drives = !specs.storage.drives.empty() ? specs.storage.drives : specs.storage.allDrives;
+    if (drives.empty()) {
+        return "Primary drive " + specs.storage.drive + " has " + std::to_string(specs.storage.freeGB) +
+               " GB free (" + std::to_string(game.storageGB) + " GB required).";
+    }
+
+    const DriveSpec* bestFit = nullptr;
+    const DriveSpec* largest = &drives[0];
+    for (const auto& d : drives) {
+        if (d.freeGB > largest->freeGB) largest = &d;
+        if (d.freeGB < game.storageGB) continue;
+        if (!bestFit) {
+            bestFit = &d;
+            continue;
+        }
+        bool curIsOs = (d.drive == "C:" || d.drive == "/");
+        bool bestIsOs = (bestFit->drive == "C:" || bestFit->drive == "/");
+        if ((bestIsOs && !curIsOs) || (curIsOs == bestIsOs && d.freeGB > bestFit->freeGB)) {
+            bestFit = &d;
+        }
+    }
+
+    if (bestFit) {
+        return "Install on " + bestFit->drive + " (" + bestFit->label + ") — " +
+               std::to_string(bestFit->freeGB) + " GB free >= " + std::to_string(game.storageGB) +
+               " GB required" + (game.ssdRequired ? " (SSD recommended)." : ".");
+    }
+    return "Warning: Need " + std::to_string(game.storageGB) + " GB free; largest drive " +
+           largest->drive + " only has " + std::to_string(largest->freeGB) + " GB free.";
+}
+
 inline DriverAdvisorResult getDriverAppRecommendations(const SystemSpecs& specs, const GameSpec& game, int mode = OPT_MODE_OPTIMAL) {
     DriverAdvisorResult res;
-    int clampedMode = std::max(0, std::min(3, mode));
-
-    std::string gpuVendor = toLower(specs.gpu.vendor);
-    std::string gpuLow = toLower(specs.gpu.name);
-    std::string cpuLow = toLower(specs.cpu.name);
-    if (gpuVendor.empty() || gpuVendor == "unknown") {
-        if (gpuLow.find("nvidia") != std::string::npos || gpuLow.find("geforce") != std::string::npos || gpuLow.find("rtx") != std::string::npos || gpuLow.find("gtx") != std::string::npos) gpuVendor = "nvidia";
-        else if (gpuLow.find("amd") != std::string::npos || gpuLow.find("radeon") != std::string::npos || gpuLow.find("rx ") != std::string::npos) gpuVendor = "amd";
-        else if (gpuLow.find("intel") != std::string::npos || gpuLow.find("arc") != std::string::npos) gpuVendor = "intel";
-    }
+    int clampedMode = std::clamp(mode, 0, 3);
+    std::string gpuVendor = inferGpuVendor(specs.gpu.vendor, specs.gpu.name);
 
     auto suites = specs.driverSuites.empty() ? detectDriverSuites(specs) : specs.driverSuites;
     auto findSuiteStatus = [&](const std::string& id) -> std::string {
@@ -2663,203 +3103,26 @@ inline DriverAdvisorResult getDriverAppRecommendations(const SystemSpecs& specs,
     int hz = specs.display.refreshRateHz > 0 ? specs.display.refreshRateHz : 60;
     int capHz = std::max(30, hz - 3);
     bool vrr = specs.display.vrrCapable;
-
-    std::string titleLow = toLower(game.title);
-    std::string genreLow = toLower(game.genre);
-    bool isCompetitive = (genreLow.find("shooter") != std::string::npos || genreLow.find("fps") != std::string::npos ||
-                          genreLow.find("tactical") != std::string::npos || genreLow.find("esports") != std::string::npos ||
-                          genreLow.find("battle royale") != std::string::npos || titleLow.find("counter-strike") != std::string::npos ||
-                          titleLow.find("cs2") != std::string::npos || titleLow.find("valorant") != std::string::npos ||
-                          titleLow.find("apex") != std::string::npos || titleLow.find("warzone") != std::string::npos ||
-                          titleLow.find("overwatch") != std::string::npos || titleLow.find("fortnite") != std::string::npos);
+    bool isCompetitive = isCompetitiveGame(game);
 
     if (gpuVendor == "amd") {
         res.suiteName = "AMD Software: Adrenalin Edition";
         res.suiteStatus = findSuiteStatus("amd_adrenalin");
         res.summary = "Tuned for " + specs.gpu.name + " on " + std::to_string(hz) + "Hz" + (vrr ? " VRR/FreeSync" : " Fixed-Hz") + " display.";
-
-        res.settings.push_back({
-            "Radeon Anti-Lag / Anti-Lag 2",
-            (clampedMode == OPT_MODE_QUALITY) ? "Enabled (Anti-Lag)" : "Enabled (Anti-Lag 2 if supported)",
-            "Cuts input-to-photon latency with zero FPS penalty."
-        });
-
-        std::string chillVal = "Off";
-        std::string chillReason = "Uncapped FPS for minimum input latency in Full FPS mode.";
-        if (clampedMode == OPT_MODE_QUALITY) {
-            chillVal = "Min: 30 / Max: " + std::to_string(std::min(60, capHz)) + " FPS";
-            chillReason = "Locks frame pacing to cinematic 30-60 FPS envelope.";
-        } else if (clampedMode == OPT_MODE_OPTIMAL || clampedMode == OPT_MODE_BALANCED) {
-            chillVal = vrr
-                ? ("Min: 48 / Max: " + std::to_string(capHz) + " FPS")
-                : ("Min: 60 / Max: " + std::to_string(hz) + " FPS");
-            chillReason = vrr
-                ? ("Caps 3 FPS below " + std::to_string(hz) + "Hz to stay inside FreeSync VRR window.")
-                : ("Matches " + std::to_string(hz) + "Hz refresh rate to reduce power & heat.");
-        }
-        res.settings.push_back({ "Radeon Chill", chillVal, chillReason });
-
-        res.settings.push_back({
-            "AMD FreeSync / VRR",
-            vrr ? "Enabled (AMD FreeSync)" : "Off (No VRR Display)",
-            vrr ? "Eliminates tearing without V-Sync input lag." : "Display reported fixed refresh rate."
-        });
-
-        bool allowAfmf = !isCompetitive && clampedMode != OPT_MODE_FULL_FPS;
-        res.settings.push_back({
-            "AMD Fluid Motion Frames 2 (AFMF 2)",
-            allowAfmf ? "Auto (Enable if base FPS < 60)" : "Off",
-            allowAfmf ? "Boosts perceived smoothness on demanding AAA titles." : "Disabled to preserve raw responsiveness in fast/competitive play."
-        });
-
-        res.settings.push_back({
-            "Radeon Image Sharpening (RIS)",
-            (clampedMode == OPT_MODE_FULL_FPS || clampedMode == OPT_MODE_BALANCED) ? "Enabled (70-80%)" : "Enabled (50%)",
-            "Restores texture crispness when FSR upscaling is active (<1% cost)."
-        });
-
-        res.settings.push_back({
-            "Texture Filtering Quality",
-            (clampedMode == OPT_MODE_FULL_FPS) ? "Performance" : ((clampedMode == OPT_MODE_QUALITY) ? "High" : "Standard"),
-            "Balances anisotropic sharpness vs. shader bandwidth."
-        });
-
-        res.settings.push_back({
-            "Wait for Vertical Refresh",
-            "Always Off",
-            "Prevents driver-level V-Sync latency; rely on FreeSync + Chill cap."
-        });
-
-        bool hasRyzen5k7k = (cpuLow.find("ryzen") != std::string::npos &&
-            (cpuLow.find("5500") != std::string::npos || cpuLow.find("5600") != std::string::npos ||
-             cpuLow.find("5700") != std::string::npos || cpuLow.find("5800") != std::string::npos ||
-             cpuLow.find("5900") != std::string::npos || cpuLow.find("5950") != std::string::npos ||
-             cpuLow.find("7500") != std::string::npos || cpuLow.find("7600") != std::string::npos ||
-             cpuLow.find("7700") != std::string::npos || cpuLow.find("7800") != std::string::npos ||
-             cpuLow.find("7900") != std::string::npos || cpuLow.find("7950") != std::string::npos ||
-             cpuLow.find("9600") != std::string::npos || cpuLow.find("9700") != std::string::npos ||
-             cpuLow.find("9800") != std::string::npos));
-        bool hasRx6k7k = (gpuLow.find("rx 6") != std::string::npos || gpuLow.find("rx 7") != std::string::npos || gpuLow.find("rx 9") != std::string::npos);
-        res.settings.push_back({
-            "AMD Smart Access Memory (SAM)",
-            (hasRyzen5k7k && hasRx6k7k) ? "Enabled (Verify Above 4G + ReBAR in BIOS)" : "Check BIOS ReBAR Support",
-            (hasRyzen5k7k && hasRx6k7k) ? "Ryzen + RX 6000/7000 pairing gains 5-15% FPS via full VRAM BAR." : "Enable Resizable BAR in BIOS if supported."
-        });
+        res.settings = buildAmdDriverSettings(specs, clampedMode, hz, capHz, vrr, isCompetitive);
     } else if (gpuVendor == "nvidia") {
         res.suiteName = "NVIDIA App / Control Panel";
         res.suiteStatus = findSuiteStatus("nvidia_app");
         res.summary = "Tuned for " + specs.gpu.name + " on " + std::to_string(hz) + "Hz" + (vrr ? " G-Sync/VRR" : " Fixed-Hz") + " display.";
-
-        res.settings.push_back({
-            "Low Latency Mode / NVIDIA Reflex",
-            (clampedMode == OPT_MODE_FULL_FPS || isCompetitive) ? "Ultra (or Reflex On + Boost)" : "On (or Reflex On)",
-            "Minimizes render queue depth and mouse-to-display latency."
-        });
-
-        std::string capVal = "Off (Uncapped)";
-        if (clampedMode == OPT_MODE_QUALITY) capVal = "60 FPS";
-        else if (clampedMode == OPT_MODE_OPTIMAL || clampedMode == OPT_MODE_BALANCED) {
-            capVal = vrr ? (std::to_string(capHz) + " FPS (Hz - 3)") : (std::to_string(hz) + " FPS");
-        }
-        res.settings.push_back({
-            "Max Frame Rate",
-            capVal,
-            vrr ? ("Keeps frame rate inside G-Sync range below " + std::to_string(hz) + "Hz.") : "Aligns frame pacing with monitor refresh rate."
-        });
-
-        res.settings.push_back({
-            "Power Management Mode",
-            "Prefer Maximum Performance",
-            "Prevents GPU boost clock downclocking during light scenes (per-game profile)."
-        });
-
-        res.settings.push_back({
-            "Texture Filtering - Quality",
-            (clampedMode == OPT_MODE_FULL_FPS) ? "High Performance" : ((clampedMode == OPT_MODE_QUALITY) ? "High Quality" : "Quality"),
-            "Optimizes shader filtering overhead without visible shimmer."
-        });
-
-        res.settings.push_back({
-            "Vertical Sync (NVCP)",
-            (vrr && clampedMode != OPT_MODE_FULL_FPS) ? "On (Paired with G-Sync + Cap)" : "Off",
-            vrr ? "NVCP V-Sync + G-Sync + Hz-3 cap eliminates tearing with zero V-Sync lag." : "Avoids double-buffer V-Sync latency."
-        });
-
-        res.settings.push_back({
-            "Shader Cache Size",
-            "10 GB",
-            "Prevents shader compilation stutter in DX12 / Unreal Engine 5 games."
-        });
-
-        res.settings.push_back({
-            "G-Sync / VRR",
-            vrr ? "Enabled (Fullscreen & Windowed)" : "Off (No VRR Display)",
-            vrr ? "Dynamic refresh synchronization for tear-free pacing." : "Display reported fixed refresh rate."
-        });
+        res.settings = buildNvidiaDriverSettings(clampedMode, hz, capHz, vrr, isCompetitive);
     } else {
         res.suiteName = "Intel Arc Control / Graphics Software";
         res.suiteStatus = findSuiteStatus("intel_arc");
         res.summary = "Tuned for " + specs.gpu.name + " on " + std::to_string(hz) + "Hz" + (vrr ? " Adaptive Sync" : " Fixed-Hz") + " display.";
-
-        res.settings.push_back({
-            "Resizable BAR",
-            "Enabled (Mandatory for Arc)",
-            "Intel Arc requires BIOS ReBAR + Above 4G Decoding for full performance."
-        });
-        res.settings.push_back({
-            "Low Latency Mode",
-            (clampedMode == OPT_MODE_FULL_FPS || isCompetitive) ? "On + Boost" : "On",
-            "Reduces CPU-to-GPU frame queue latency."
-        });
-        res.settings.push_back({
-            "Adaptive Sync / VRR",
-            vrr ? ("Enabled (Cap " + std::to_string(capHz) + " FPS)") : "Off (Fixed Refresh)",
-            vrr ? "Synchronizes display refresh to frame output." : "Fixed refresh display detected."
-        });
-        res.settings.push_back({
-            "Texture Filtering",
-            (clampedMode == OPT_MODE_FULL_FPS) ? "Performance" : "Quality",
-            "Balances anisotropic clarity and memory bandwidth."
-        });
-        res.settings.push_back({
-            "Smooth Sync",
-            (clampedMode == OPT_MODE_FULL_FPS) ? "Off" : "On (if tearing occurs)",
-            "Reduces visible tearing on non-VRR monitors without full V-Sync stall."
-        });
+        res.settings = buildIntelDriverSettings(clampedMode, capHz, vrr, isCompetitive);
     }
 
-    // Storage / Drive Placement Advice
-    const auto& drives = !specs.storage.drives.empty() ? specs.storage.drives : specs.storage.allDrives;
-    if (drives.empty()) {
-        res.storageAdvice = "Primary drive " + specs.storage.drive + " has " + std::to_string(specs.storage.freeGB) +
-                            " GB free (" + std::to_string(game.storageGB) + " GB required).";
-    } else {
-        const DriveSpec* bestFit = nullptr;
-        const DriveSpec* largest = &drives[0];
-        for (const auto& d : drives) {
-            if (d.freeGB > largest->freeGB) largest = &d;
-            if (d.freeGB >= game.storageGB) {
-                if (!bestFit) {
-                    bestFit = &d;
-                } else {
-                    bool curIsOs = (d.drive == "C:" || d.drive == "/");
-                    bool bestIsOs = (bestFit->drive == "C:" || bestFit->drive == "/");
-                    if ((bestIsOs && !curIsOs) || (curIsOs == bestIsOs && d.freeGB > bestFit->freeGB)) {
-                        bestFit = &d;
-                    }
-                }
-            }
-        }
-        if (bestFit) {
-            res.storageAdvice = "Install on " + bestFit->drive + " (" + bestFit->label + ") — " +
-                                std::to_string(bestFit->freeGB) + " GB free >= " + std::to_string(game.storageGB) +
-                                " GB required" + (game.ssdRequired ? " (SSD recommended)." : ".");
-        } else {
-            res.storageAdvice = "Warning: Need " + std::to_string(game.storageGB) + " GB free; largest drive " +
-                                largest->drive + " only has " + std::to_string(largest->freeGB) + " GB free.";
-        }
-    }
-
+    res.storageAdvice = buildStoragePlacementAdvice(specs, game);
     return res;
 }
 
@@ -3280,97 +3543,145 @@ inline std::string formatCurrencyAmount(double amount, const std::string& countr
     return "USD $" + formatWithThousandsComma(rounded);
 }
 
+struct CountryMarketConfig {
+    std::string code;
+    std::string name;
+    std::string label;
+    std::string currency;
+    std::string currencySymbol;
+    double usdRate = 1.0;
+    double vatMult = 1.0;
+    double roundStep = 1.0;
+    std::vector<std::string> safetyTips;
+};
+
+inline CountryMarketConfig getCountryMarketConfig(const std::string& rawCountryCode) {
+    std::string cc = toUpper(trim(rawCountryCode));
+    static const std::vector<CountryMarketConfig> markets = {
+        { "AR", "Argentina", "Argentina (ARS $)", "ARS", "ARS $", 1180.0, 1.18, 500.0, {
+            "AR: Prioriza siempre agregadores oficiales como HardGamers y tiendas con local fisico y factura A/B (Compra Gamer, Maximus, Venex, FullH4rd, Mexx).",
+            "En MercadoLibre Argentina, filtra exclusivamente por Tiendas Oficiales o MercadoLider Platinum con garantia de fabrica (evita GPUs usadas en mineria).",
+            "Verifica el precio Especial / Transferencia vs Precio de Lista antes de comprar."
+        }},
+        { "US", "United States", "United States (USD $)", "USD", "USD $", 1.0, 1.0, 1.0, {
+            "US: Compare historical lows on PCPartPicker before buying.",
+            "On Newegg and Amazon, verify Sold & Shipped by Official Brand to avoid third-party marketplace gouging."
+        }},
+        { "BR", "Brazil", "Brasil (BRL R$)", "BRL", "R$", 5.75, 1.25, 10.0, {
+            "BR: Priorize lojas oficiais de hardware no Brasil: KaBuM!, Pichau e Terabyteshop com Nota Fiscal e garantia nacional."
+        }},
+        { "CL", "Chile", "Chile (CLP $)", "CLP", "CLP $", 980.0, 1.19, 500.0, {
+            "CL: Usa SoloTodo Chile para comparar precios en tiempo real entre mas de 25 tiendas verificadas con boleta/factura."
+        }},
+        { "MX", "Mexico", "Mexico (MXN $)", "MXN", "MXN $", 20.2, 1.16, 10.0, {
+            "MX: Compra en distribuidores autorizados de Mexico como DDTech y CyberPuerta con garantia nacional y CFDI."
+        }},
+        { "ES", "Spain / EU", "Espana / EU (EUR)", "EUR", "EUR", 0.94, 1.21, 1.0, {
+            "ES: En Espana y la UE dispones de 3 anos de garantia legal comprando en tiendas oficiales como PcComponentes y Coolmod."
+        }}
+    };
+    for (const auto& m : markets) {
+        if (m.code == cc) return m;
+    }
+    return markets.front();
+}
+
+inline std::vector<SellerCandidate> buildCountryDealCandidates(const std::string& cc, double marketRefPrice,
+                                                               const std::string& encoded, const std::string& slug) {
+    std::vector<SellerCandidate> candidates;
+    if (cc == "AR") {
+        candidates = {
+            { "hardgamers-ar", "HardGamers Argentina", "Official Aggregator", 9.9, 99, 50000, true, "#1 AR Price Aggregator (30+ Verified Stores)", "Garantia Oficial en 30+ Tiendas Verificadas", marketRefPrice * 0.95, "", "https://www.hardgamers.com.ar/search?text=" + encoded, "New" },
+            { "compragamer-ar", "Compra Gamer", "Official Store", 9.8, 98, 120000, true, "Verified Official AR Retailer", "12-36 Meses Garantia Oficial + Factura A/B", marketRefPrice * 0.96, "", "https://compragamer.com/?seccion=3&criterio=" + encoded, "New" },
+            { "maximus-ar", "Maximus Gaming Hardware", "Official Store", 9.6, 97, 65000, true, "Verified Official AR Retailer", "Garantia Oficial Local en CABA + Envios", marketRefPrice * 0.98, "", "https://www.maximus.com.ar/Productos/maximus.aspx?busca=" + encoded, "New" },
+            { "venex-ar", "Venex Computacion", "Official Store", 9.5, 96, 55000, true, "Verified Official AR Retailer", "Garantia Oficial + Retiro / Envio Nacional", marketRefPrice * 1.00, "", "https://www.venex.com.ar/resultado-busqueda.htm?keywords=" + encoded, "New" },
+            { "fullh4rd-ar", "FullH4rd", "Official Store", 9.4, 95, 48000, true, "Verified Official AR Retailer", "Garantia Oficial Local Galeria Jardin / CABA", marketRefPrice * 0.99, "", "https://fullh4rd.com.ar/search/buscar/" + encoded, "New" },
+            { "mexx-ar", "Mexx Computacion", "Official Store", 9.5, 96, 52000, true, "Verified Official AR Retailer", "Garantia Oficial 12 Meses + Factura", marketRefPrice * 1.01, "", "https://www.mexx.com.ar/buscar/?q=" + encoded, "New" },
+            { "mercadolibre-ar-official", "MercadoLibre Argentina Official Stores & Platinum Filter", "Verified Marketplace", 9.4, 95, 90000, true, "Official Stores & MercadoLider Platinum Filter", "Compra Protegida + Filtro Nuevo / Tiendas Oficiales", marketRefPrice * 1.06, "", "https://listado.mercadolibre.com.ar/" + slug + "_Nuevo_Tienda_all", "New" }
+        };
+    } else if (cc == "US") {
+        candidates = {
+            { "pcpartpicker-us", "PCPartPicker US", "Official Aggregator", 9.9, 99, 100000, true, "#1 US Price Aggregator", "Verified Authorized US Retailers Only", marketRefPrice * 0.98, "", "https://pcpartpicker.com/search/?q=" + encoded, "New" },
+            { "microcenter-us", "Micro Center", "Official Store", 9.9, 99, 85000, true, "Top-Rated US Hardware Store", "Official Warranty + In-Store Pickup", marketRefPrice * 0.96, "", "https://www.microcenter.com/search/search_results.aspx?Ntt=" + encoded, "New" },
+            { "bestbuy-us", "Best Buy Official", "Official Store", 9.7, 97, 110000, true, "Authorized FE & Partner GPU Retailer", "Official Manufacturer Warranty", marketRefPrice * 1.00, "", "https://www.bestbuy.com/site/searchpage.jsp?st=" + encoded, "New" },
+            { "newegg-direct-us", "Newegg (Sold by Newegg Filter)", "Official Store", 9.6, 96, 95000, true, "Direct Retailer (3rd-Party Filtered)", "30-Day Return + Manufacturer Warranty", marketRefPrice * 1.00, "", "https://www.newegg.com/p/pl?d=" + encoded + "&N=8000", "New" },
+            { "bhphoto-us", "B&H Photo Video", "Official Store", 9.7, 98, 75000, true, "Verified Authorized US Dealer", "Full Authorized US Warranty", marketRefPrice * 1.01, "", "https://www.bhphotovideo.com/c/search?Ntt=" + encoded, "New" }
+        };
+    } else if (cc == "BR") {
+        candidates = {
+            { "kabum-br", "KaBuM!", "Official Store", 9.8, 98, 150000, true, "Maior E-commerce de Hardware do Brasil", "Garantia Oficial + PIX", marketRefPrice * 0.97, "", "https://www.kabum.com.br/busca/" + encoded, "New" },
+            { "pichau-br", "Pichau Informatica", "Official Store", 9.7, 97, 95000, true, "Loja Oficial Verificada BR", "Garantia Oficial + Nota Fiscal", marketRefPrice * 0.96, "", "https://www.pichau.com.br/search?q=" + encoded, "New" },
+            { "terabyteshop-br", "Terabyteshop", "Official Store", 9.7, 97, 90000, true, "Especialista Oficial em Hardware BR", "Garantia Oficial de Fabrica", marketRefPrice * 0.98, "", "https://www.terabyteshop.com.br/busca?str=" + encoded, "New" },
+            { "mercadolivre-br-official", "MercadoLivre Brasil (Lojas Oficiais)", "Verified Marketplace", 9.4, 95, 80000, true, "Filtro Exclusivo Lojas Oficiais", "Compra Garantida + Nota Fiscal", marketRefPrice * 1.05, "", "https://lista.mercadolivre.com.br/" + slug + "_Loja_all", "New" }
+        };
+    } else if (cc == "CL") {
+        candidates = {
+            { "solotodo-cl", "SoloTodo Chile", "Official Aggregator", 9.9, 99, 60000, true, "Comparador #1 de Hardware en Chile", "Tiendas Chilenas Verificadas con Garantia Legal", marketRefPrice * 0.96, "", "https://www.solotodo.cl/search?search=" + encoded, "New" },
+            { "pcfactory-cl", "PC Factory", "Official Store", 9.7, 97, 85000, true, "Tienda Oficial con Sucursales en Chile", "Garantia Legal 6 Meses + Fabricante", marketRefPrice * 1.00, "", "https://www.pcfactory.cl/buscar?valor=" + encoded, "New" },
+            { "spdigital-cl", "SP Digital", "Official Store", 9.6, 96, 70000, true, "Especialista Gaming & Hardware Oficial CL", "Garantia Oficial + Despacho Nacional", marketRefPrice * 0.98, "", "https://www.spdigital.cl/search/?q=" + encoded, "New" }
+        };
+    } else if (cc == "MX") {
+        candidates = {
+            { "ddtech-mx", "DDTech Mexico", "Official Store", 9.8, 98, 75000, true, "Tienda #1 de Hardware Gaming en Mexico", "12 Meses Garantia Oficial + CFDI", marketRefPrice * 0.97, "", "https://ddtech.mx/buscar/" + encoded, "New" },
+            { "cyberpuerta-mx", "CyberPuerta", "Official Store", 9.7, 97, 90000, true, "Distribuidor Autorizado Hardware MX", "Garantia Nacional + Envio Asegurado", marketRefPrice * 0.98, "", "https://www.cyberpuerta.mx/index.php?cl=search&searchparam=" + encoded, "New" },
+            { "mercadolibre-mx-official", "MercadoLibre Mexico (Tiendas Oficiales)", "Verified Marketplace", 9.4, 95, 85000, true, "Filtro Exclusivo Tiendas Oficiales MX", "Compra Protegida + Envio Full", marketRefPrice * 1.04, "", "https://listado.mercadolibre.com.mx/" + slug + "_Tienda_all", "New" }
+        };
+    } else {
+        candidates = {
+            { "geizhals-eu", "Geizhals EU Price Aggregator", "Official Aggregator", 9.9, 99, 95000, true, "Comparador #1 de Precios en Europa", "Tiendas Europeas Verificadas con Garantia UE", marketRefPrice * 0.95, "", "https://geizhals.eu/?fs=" + encoded, "New" },
+            { "pccomponentes-es", "PcComponentes", "Official Store", 9.8, 98, 140000, true, "Lider de Hardware en Espana (3 Anos Garantia)", "3 Anos de Garantia Oficial UE", marketRefPrice * 0.98, "", "https://www.pccomponentes.com/buscar/?query=" + encoded, "New" },
+            { "coolmod-es", "Coolmod", "Official Store", 9.6, 96, 68000, true, "Tienda Oficial Gaming & Entusiasta ES", "3 Anos de Garantia Oficial Espanola", marketRefPrice * 0.97, "", "https://www.coolmod.com/buscar?q=" + encoded, "New" }
+        };
+    }
+
+    // Simulated risky/scam unverified marketplace listings audited and blocked by Reputation Shield
+    candidates.push_back({ "blocked-low-rep", "Unverified Reseller (62% Rating)", "Unverified Seller", 6.2, 62, 12, false, "Unverified", "Sin garantia", marketRefPrice * 0.88, "", "https://example.invalid/low-rep", "New" });
+    candidates.push_back({ "blocked-mined", "Rig De Mineria Usada Sin Garantia", "Marketplace Individual", 8.1, 81, 19, false, "Usado Mineria", "Sin garantia", marketRefPrice * 0.65, "", "https://example.invalid/mined", "Used / Mined" });
+    candidates.push_back({ "blocked-scam-price", "Too-Good-To-Be-True Listing (-65% Off)", "New Account", 7.0, 70, 3, false, "Suspicious Price", "No warranty", marketRefPrice * 0.35, "", "https://example.invalid/scam", "New" });
+    return candidates;
+}
+
+inline DealEntry buildDealEntryFromCandidate(const SellerCandidate& cand, double marketRefPrice, const std::string& cc) {
+    ReputationEval rep = evaluateSellerReputation(cand, marketRefPrice, true);
+    DealEntry d;
+    d.storeId = cand.storeId;
+    d.storeName = cand.storeName;
+    d.sellerType = cand.sellerType;
+    d.trustScore = rep.trustScore;
+    d.positiveRatingPct = rep.positiveRatingPct;
+    d.completedSales = rep.completedSales;
+    d.isOfficialStore = rep.isOfficialStore;
+    d.badge = cand.badge;
+    d.warranty = cand.warranty;
+    d.estimatedPrice = std::round(cand.price);
+    d.formattedPrice = formatCurrencyAmount(d.estimatedPrice, cc);
+    d.url = cand.url;
+    d.condition = cand.condition;
+    d.reputationVerified = rep.approved;
+    d.blockReason = rep.primaryReason;
+    return d;
+}
+
 inline DealSearchResult searchComponentDeals(const std::string& rawQuery, const std::string& rawCountryCode = "AR", bool autoAuthorize = false) {
     if (autoAuthorize) {
         firewallAuthorized = true;
     }
 
+    CountryMarketConfig market = getCountryMarketConfig(rawCountryCode);
     DealSearchResult out;
     out.query = trim(rawQuery).empty() ? "AMD Radeon RX 7800 XT" : trim(rawQuery);
-    std::string cc = toUpper(trim(rawCountryCode));
-    if (cc != "AR" && cc != "US" && cc != "BR" && cc != "CL" && cc != "MX" && cc != "ES") {
-        cc = "AR";
-    }
-    out.countryCode = cc;
+    out.countryCode = market.code;
     out.firewallAuthorized = firewallAuthorized;
-
-    double usdRate = 1180.0;
-    double vatMult = 1.18;
-    if (cc == "AR") {
-        out.countryName = "Argentina";
-        out.countryLabel = "Argentina (ARS $)";
-        out.currency = "ARS";
-        out.currencySymbol = "ARS $";
-        usdRate = 1180.0;
-        vatMult = 1.18;
-        out.buyerSafetyTips = {
-            "AR: Prioriza siempre agregadores oficiales como HardGamers y tiendas con local fisico y factura A/B (Compra Gamer, Maximus, Venex, FullH4rd, Mexx).",
-            "En MercadoLibre Argentina, filtra exclusivamente por Tiendas Oficiales o MercadoLider Platinum con garantia de fabrica (evita GPUs usadas en mineria).",
-            "Verifica el precio Especial / Transferencia vs Precio de Lista antes de comprar."
-        };
-    } else if (cc == "US") {
-        out.countryName = "United States";
-        out.countryLabel = "United States (USD $)";
-        out.currency = "USD";
-        out.currencySymbol = "USD $";
-        usdRate = 1.0;
-        vatMult = 1.0;
-        out.buyerSafetyTips = {
-            "US: Compare historical lows on PCPartPicker before buying.",
-            "On Newegg and Amazon, verify Sold & Shipped by Official Brand to avoid third-party marketplace gouging."
-        };
-    } else if (cc == "BR") {
-        out.countryName = "Brazil";
-        out.countryLabel = "Brasil (BRL R$)";
-        out.currency = "BRL";
-        out.currencySymbol = "R$";
-        usdRate = 5.75;
-        vatMult = 1.25;
-        out.buyerSafetyTips = {
-            "BR: Priorize lojas oficiais de hardware no Brasil: KaBuM!, Pichau e Terabyteshop com Nota Fiscal e garantia nacional."
-        };
-    } else if (cc == "CL") {
-        out.countryName = "Chile";
-        out.countryLabel = "Chile (CLP $)";
-        out.currency = "CLP";
-        out.currencySymbol = "CLP $";
-        usdRate = 980.0;
-        vatMult = 1.19;
-        out.buyerSafetyTips = {
-            "CL: Usa SoloTodo Chile para comparar precios en tiempo real entre mas de 25 tiendas verificadas con boleta/factura."
-        };
-    } else if (cc == "MX") {
-        out.countryName = "Mexico";
-        out.countryLabel = "Mexico (MXN $)";
-        out.currency = "MXN";
-        out.currencySymbol = "MXN $";
-        usdRate = 20.2;
-        vatMult = 1.16;
-        out.buyerSafetyTips = {
-            "MX: Compra en distribuidores autorizados de Mexico como DDTech y CyberPuerta con garantia nacional y CFDI."
-        };
-    } else {
-        out.countryName = "Spain / EU";
-        out.countryLabel = "Espana / EU (EUR)";
-        out.currency = "EUR";
-        out.currencySymbol = "EUR";
-        usdRate = 0.94;
-        vatMult = 1.21;
-        out.buyerSafetyTips = {
-            "ES: En Espana y la UE dispones de 3 anos de garantia legal comprando en tiendas oficiales como PcComponentes y Coolmod."
-        };
-    }
+    out.countryName = market.name;
+    out.countryLabel = market.label;
+    out.currency = market.currency;
+    out.currencySymbol = market.currencySymbol;
+    out.buyerSafetyTips = market.safetyTips;
 
     out.baseUsdPrice = estimateBaseUsdForHardwareQuery(out.query);
-    double rawRef = out.baseUsdPrice * usdRate * vatMult;
-    if (cc == "AR" || cc == "CL") {
-        out.marketRefPrice = std::round(rawRef / 500.0) * 500.0;
-    } else if (cc == "BR" || cc == "MX") {
-        out.marketRefPrice = std::round(rawRef / 10.0) * 10.0;
-    } else {
-        out.marketRefPrice = std::round(rawRef);
-    }
-    out.formattedMarketRefPrice = formatCurrencyAmount(out.marketRefPrice, cc);
+    double rawRef = out.baseUsdPrice * market.usdRate * market.vatMult;
+    out.marketRefPrice = std::round(rawRef / market.roundStep) * market.roundStep;
+    out.formattedMarketRefPrice = formatCurrencyAmount(out.marketRefPrice, market.code);
 
     if (!firewallAuthorized) {
         out.firewallBlocked = true;
@@ -3381,80 +3692,10 @@ inline DealSearchResult searchComponentDeals(const std::string& rawQuery, const 
     out.firewallBlocked = false;
     out.status = "OK";
 
-    std::string encoded = urlEncode(out.query);
-    std::string slug = slugify(out.query);
-    std::vector<SellerCandidate> candidates;
-
-    if (cc == "AR") {
-        candidates = {
-            { "hardgamers-ar", "HardGamers Argentina", "Official Aggregator", 9.9, 99, 50000, true, "#1 AR Price Aggregator (30+ Verified Stores)", "Garantia Oficial en 30+ Tiendas Verificadas", out.marketRefPrice * 0.95, "", "https://www.hardgamers.com.ar/search?text=" + encoded, "New" },
-            { "compragamer-ar", "Compra Gamer", "Official Store", 9.8, 98, 120000, true, "Verified Official AR Retailer", "12-36 Meses Garantia Oficial + Factura A/B", out.marketRefPrice * 0.96, "", "https://compragamer.com/?seccion=3&criterio=" + encoded, "New" },
-            { "maximus-ar", "Maximus Gaming Hardware", "Official Store", 9.6, 97, 65000, true, "Verified Official AR Retailer", "Garantia Oficial Local en CABA + Envios", out.marketRefPrice * 0.98, "", "https://www.maximus.com.ar/Productos/maximus.aspx?busca=" + encoded, "New" },
-            { "venex-ar", "Venex Computacion", "Official Store", 9.5, 96, 55000, true, "Verified Official AR Retailer", "Garantia Oficial + Retiro / Envio Nacional", out.marketRefPrice * 1.00, "", "https://www.venex.com.ar/resultado-busqueda.htm?keywords=" + encoded, "New" },
-            { "fullh4rd-ar", "FullH4rd", "Official Store", 9.4, 95, 48000, true, "Verified Official AR Retailer", "Garantia Oficial Local Galeria Jardin / CABA", out.marketRefPrice * 0.99, "", "https://fullh4rd.com.ar/search/buscar/" + encoded, "New" },
-            { "mexx-ar", "Mexx Computacion", "Official Store", 9.5, 96, 52000, true, "Verified Official AR Retailer", "Garantia Oficial 12 Meses + Factura", out.marketRefPrice * 1.01, "", "https://www.mexx.com.ar/buscar/?q=" + encoded, "New" },
-            { "mercadolibre-ar-official", "MercadoLibre Argentina Official Stores & Platinum Filter", "Verified Marketplace", 9.4, 95, 90000, true, "Official Stores & MercadoLider Platinum Filter", "Compra Protegida + Filtro Nuevo / Tiendas Oficiales", out.marketRefPrice * 1.06, "", "https://listado.mercadolibre.com.ar/" + slug + "_Nuevo_Tienda_all", "New" }
-        };
-    } else if (cc == "US") {
-        candidates = {
-            { "pcpartpicker-us", "PCPartPicker US", "Official Aggregator", 9.9, 99, 100000, true, "#1 US Price Aggregator", "Verified Authorized US Retailers Only", out.marketRefPrice * 0.98, "", "https://pcpartpicker.com/search/?q=" + encoded, "New" },
-            { "microcenter-us", "Micro Center", "Official Store", 9.9, 99, 85000, true, "Top-Rated US Hardware Store", "Official Warranty + In-Store Pickup", out.marketRefPrice * 0.96, "", "https://www.microcenter.com/search/search_results.aspx?Ntt=" + encoded, "New" },
-            { "bestbuy-us", "Best Buy Official", "Official Store", 9.7, 97, 110000, true, "Authorized FE & Partner GPU Retailer", "Official Manufacturer Warranty", out.marketRefPrice * 1.00, "", "https://www.bestbuy.com/site/searchpage.jsp?st=" + encoded, "New" },
-            { "newegg-direct-us", "Newegg (Sold by Newegg Filter)", "Official Store", 9.6, 96, 95000, true, "Direct Retailer (3rd-Party Filtered)", "30-Day Return + Manufacturer Warranty", out.marketRefPrice * 1.00, "", "https://www.newegg.com/p/pl?d=" + encoded + "&N=8000", "New" },
-            { "bhphoto-us", "B&H Photo Video", "Official Store", 9.7, 98, 75000, true, "Verified Authorized US Dealer", "Full Authorized US Warranty", out.marketRefPrice * 1.01, "", "https://www.bhphotovideo.com/c/search?Ntt=" + encoded, "New" }
-        };
-    } else if (cc == "BR") {
-        candidates = {
-            { "kabum-br", "KaBuM!", "Official Store", 9.8, 98, 150000, true, "Maior E-commerce de Hardware do Brasil", "Garantia Oficial + PIX", out.marketRefPrice * 0.97, "", "https://www.kabum.com.br/busca/" + encoded, "New" },
-            { "pichau-br", "Pichau Informatica", "Official Store", 9.7, 97, 95000, true, "Loja Oficial Verificada BR", "Garantia Oficial + Nota Fiscal", out.marketRefPrice * 0.96, "", "https://www.pichau.com.br/search?q=" + encoded, "New" },
-            { "terabyteshop-br", "Terabyteshop", "Official Store", 9.7, 97, 90000, true, "Especialista Oficial em Hardware BR", "Garantia Oficial de Fabrica", out.marketRefPrice * 0.98, "", "https://www.terabyteshop.com.br/busca?str=" + encoded, "New" },
-            { "mercadolivre-br-official", "MercadoLivre Brasil (Lojas Oficiais)", "Verified Marketplace", 9.4, 95, 80000, true, "Filtro Exclusivo Lojas Oficiais", "Compra Garantida + Nota Fiscal", out.marketRefPrice * 1.05, "", "https://lista.mercadolivre.com.br/" + slug + "_Loja_all", "New" }
-        };
-    } else if (cc == "CL") {
-        candidates = {
-            { "solotodo-cl", "SoloTodo Chile", "Official Aggregator", 9.9, 99, 60000, true, "Comparador #1 de Hardware en Chile", "Tiendas Chilenas Verificadas con Garantia Legal", out.marketRefPrice * 0.96, "", "https://www.solotodo.cl/search?search=" + encoded, "New" },
-            { "pcfactory-cl", "PC Factory", "Official Store", 9.7, 97, 85000, true, "Tienda Oficial con Sucursales en Chile", "Garantia Legal 6 Meses + Fabricante", out.marketRefPrice * 1.00, "", "https://www.pcfactory.cl/buscar?valor=" + encoded, "New" },
-            { "spdigital-cl", "SP Digital", "Official Store", 9.6, 96, 70000, true, "Especialista Gaming & Hardware Oficial CL", "Garantia Oficial + Despacho Nacional", out.marketRefPrice * 0.98, "", "https://www.spdigital.cl/search/?q=" + encoded, "New" }
-        };
-    } else if (cc == "MX") {
-        candidates = {
-            { "ddtech-mx", "DDTech Mexico", "Official Store", 9.8, 98, 75000, true, "Tienda #1 de Hardware Gaming en Mexico", "12 Meses Garantia Oficial + CFDI", out.marketRefPrice * 0.97, "", "https://ddtech.mx/buscar/" + encoded, "New" },
-            { "cyberpuerta-mx", "CyberPuerta", "Official Store", 9.7, 97, 90000, true, "Distribuidor Autorizado Hardware MX", "Garantia Nacional + Envio Asegurado", out.marketRefPrice * 0.98, "", "https://www.cyberpuerta.mx/index.php?cl=search&searchparam=" + encoded, "New" },
-            { "mercadolibre-mx-official", "MercadoLibre Mexico (Tiendas Oficiales)", "Verified Marketplace", 9.4, 95, 85000, true, "Filtro Exclusivo Tiendas Oficiales MX", "Compra Protegida + Envio Full", out.marketRefPrice * 1.04, "", "https://listado.mercadolibre.com.mx/" + slug + "_Tienda_all", "New" }
-        };
-    } else {
-        candidates = {
-            { "geizhals-eu", "Geizhals EU Price Aggregator", "Official Aggregator", 9.9, 99, 95000, true, "Comparador #1 de Precios en Europa", "Tiendas Europeas Verificadas con Garantia UE", out.marketRefPrice * 0.95, "", "https://geizhals.eu/?fs=" + encoded, "New" },
-            { "pccomponentes-es", "PcComponentes", "Official Store", 9.8, 98, 140000, true, "Lider de Hardware en Espana (3 Anos Garantia)", "3 Anos de Garantia Oficial UE", out.marketRefPrice * 0.98, "", "https://www.pccomponentes.com/buscar/?query=" + encoded, "New" },
-            { "coolmod-es", "Coolmod", "Official Store", 9.6, 96, 68000, true, "Tienda Oficial Gaming & Entusiasta ES", "3 Anos de Garantia Oficial Espanola", out.marketRefPrice * 0.97, "", "https://www.coolmod.com/buscar?q=" + encoded, "New" }
-        };
-    }
-
-    // Add 3 simulated risky/scam unverified marketplace listings that Reputation Shield audits and blocks
-    candidates.push_back({ "blocked-low-rep", "Unverified Reseller (62% Rating)", "Unverified Seller", 6.2, 62, 12, false, "Unverified", "Sin garantia", out.marketRefPrice * 0.88, "", "https://example.invalid/low-rep", "New" });
-    candidates.push_back({ "blocked-mined", "Rig De Mineria Usada Sin Garantia", "Marketplace Individual", 8.1, 81, 19, false, "Usado Mineria", "Sin garantia", out.marketRefPrice * 0.65, "", "https://example.invalid/mined", "Used / Mined" });
-    candidates.push_back({ "blocked-scam-price", "Too-Good-To-Be-True Listing (-65% Off)", "New Account", 7.0, 70, 3, false, "Suspicious Price", "No warranty", out.marketRefPrice * 0.35, "", "https://example.invalid/scam", "New" });
-
+    auto candidates = buildCountryDealCandidates(market.code, out.marketRefPrice, urlEncode(out.query), slugify(out.query));
     for (const auto& cand : candidates) {
-        ReputationEval rep = evaluateSellerReputation(cand, out.marketRefPrice, true);
-        DealEntry d;
-        d.storeId = cand.storeId;
-        d.storeName = cand.storeName;
-        d.sellerType = cand.sellerType;
-        d.trustScore = rep.trustScore;
-        d.positiveRatingPct = rep.positiveRatingPct;
-        d.completedSales = rep.completedSales;
-        d.isOfficialStore = rep.isOfficialStore;
-        d.badge = cand.badge;
-        d.warranty = cand.warranty;
-        d.estimatedPrice = std::round(cand.price);
-        d.formattedPrice = formatCurrencyAmount(d.estimatedPrice, cc);
-        d.url = cand.url;
-        d.condition = cand.condition;
-        d.reputationVerified = rep.approved;
-        d.blockReason = rep.primaryReason;
-
-        if (rep.approved) {
+        DealEntry d = buildDealEntryFromCandidate(cand, out.marketRefPrice, market.code);
+        if (d.reputationVerified) {
             out.deals.push_back(d);
             out.verifiedDeals.push_back(d);
         } else {

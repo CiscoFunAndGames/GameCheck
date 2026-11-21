@@ -702,6 +702,22 @@ int main(int argc, char* argv[]) {
         : (detectedUninstallByName && !selfExeDir.empty() ? selfExeDir : defaultInstallDir);
     targetDir = normalizeWinPath(targetDir);
 
+    // Request Administrator (UAC) privileges immediately for interactive Setup / Uninstall
+    if (!verifyOnly && !checkDepsOnly && !silentMode && !isRunningAsAdmin()) {
+        wchar_t selfPath[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, selfPath, MAX_PATH);
+        std::wstring params;
+        if (uninstallMode) params += L" --uninstall";
+        if (skipRegistryAndShortcuts) params += L" --no-shortcuts";
+        if (!createDesktopShortcut) params += L" --no-desktop-shortcut";
+        if (skipDeps) params += L" --no-deps";
+        if (!customInstallDir.empty()) {
+            params += L" --install-dir=\"" + utf8ToWide(customInstallDir) + L"\"";
+        }
+        bool ok = runElevatedProcess(selfPath, params, false);
+        return ok ? 0 : 1;
+    }
+
     if (elevateSelf && !isRunningAsAdmin()) {
         wchar_t selfPath[MAX_PATH];
         GetModuleFileNameW(nullptr, selfPath, MAX_PATH);
