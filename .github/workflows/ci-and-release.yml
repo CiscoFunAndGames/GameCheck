@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   bump-calver:
@@ -34,12 +35,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js 24
         uses: actions/setup-node@v6
         with:
           node-version: '24'
 
-      - name: Bump CalVer & Commit Version Update
+      - name: Bump CalVer & Update README Download Links
         id: bump
         run: |
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
@@ -47,14 +48,6 @@ jobs:
           else
             node scripts/calver.js bump "Automated CI release build (${GITHUB_SHA::7})"
             node scripts/update-readme-links.js
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add version.json package.json README.md
-            if ! git diff --cached --quiet; then
-              FULL_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('version.json','utf8')).fullVersion)")
-              git commit -m "chore(release): bump CalVer to v${FULL_VER} [skip ci]"
-              git push origin "HEAD:${{ github.ref_name }}"
-            fi
           fi
           FULL_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('version.json','utf8')).fullVersion)")
           CALVER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('version.json','utf8')).calver)")
@@ -62,6 +55,16 @@ jobs:
           echo "full_version=${FULL_VER}" >> $GITHUB_OUTPUT
           echo "git_tag=v${FULL_VER}" >> $GITHUB_OUTPUT
           echo "build_ref=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Upload Bumped Version Metadata
+        uses: actions/upload-artifact@v6
+        with:
+          name: bumped-metadata
+          path: |
+            version.json
+            package.json
+            README.md
+          if-no-files-found: error
 
   build-windows:
     name: Build & Verify Windows Native C++ Installer (.exe)
@@ -76,6 +79,12 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.bump-calver.outputs.build_ref }}
+
+      - name: Apply Bumped Version Metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: bumped-metadata
+          path: .
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v6
@@ -150,6 +159,12 @@ jobs:
         with:
           ref: ${{ needs.bump-calver.outputs.build_ref }}
 
+      - name: Apply Bumped Version Metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: bumped-metadata
+          path: .
+
       - name: Setup Node.js 20
         uses: actions/setup-node@v6
         with:
@@ -212,6 +227,12 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.bump-calver.outputs.build_ref }}
+
+      - name: Apply Bumped Version Metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: bumped-metadata
+          path: .
 
       - name: Download Windows Artifacts
         uses: actions/download-artifact@v8
@@ -285,12 +306,25 @@ jobs:
             gh release create "$REL_TAG" "${ASSETS[@]}" --title "$REL_NAME" --notes-file RELEASE_NOTES.md
           fi
 
-      - name: Sync main back into dev
+      - name: Sync Release Metadata into dev via PR
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FULL_VER: ${{ needs.bump-calver.outputs.full_version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin main dev
-          git checkout dev
+          git fetch origin dev main
+          SYNC_BRANCH="chore/release-sync-v${FULL_VER}"
+          git checkout -B "$SYNC_BRANCH" origin/dev
           git merge --no-edit -X theirs origin/main || true
-          git push origin dev
+          git add version.json package.json README.md
+          if ! git diff --cached --quiet || [ "$(git rev-list --count origin/dev..HEAD)" -gt 0 ]; then
+            if ! git diff --cached --quiet; then
+              git commit -m "chore(release): sync CalVer v${FULL_VER} & README links into dev [skip ci]"
+            fi
+            git push -f origin "$SYNC_BRANCH"
+            gh pr create --base dev --head "$SYNC_BRANCH" \
+              --title "chore(release): sync v${FULL_VER} metadata & README links into dev" \
+              --body "Automated post-release sync of \`version.json\`, \`package.json\`, and \`README.md\` download links for \`v${FULL_VER}\`." || true
+          fi
