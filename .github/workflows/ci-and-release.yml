@@ -203,7 +203,7 @@ jobs:
 
   publish-release:
     name: Publish CalVer GitHub Release & Downloadable Binaries
-    needs: [build-windows, build-linux]
+    needs: [bump-calver, build-windows, build-linux]
     if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))) || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
@@ -236,19 +236,20 @@ jobs:
             const fs = require("fs");
             const v = JSON.parse(fs.readFileSync("version.json", "utf8"));
             const sums = fs.readFileSync("release-assets/SHA256SUMS.txt", "utf8").trim();
+            const patchFile = fs.readdirSync("release-assets").find(f => f.endsWith(".rigpatch.json")) || `rigcheck-patch-${v.fullVersion}.rigpatch.json`;
             const historyMd = Array.isArray(v.history)
               ? v.history.map(h => `- **v${h.version}** (\`${h.calver}\` patch \`.${h.patchLevel}\`): ${h.notes}`).join("\n")
               : `- **v${v.fullVersion}**: ${v.notes}`;
             const body = [
-              `## RigCheck Optimizer — CalVer Release \`v${v.fullVersion}\` (\`${v.calver}\`)`,
+              `## GameCheck — Release \`v${v.fullVersion}\` (\`${v.calver}\`)`,
               "",
               v.notes,
               "",
               "### Direct Downloads (Windows & Linux)",
-              `- **Windows Native C++ Setup (\`.exe\`)**: \`RigCheck-Optimizer-Setup-${v.calver}.exe\` (Self-extracting Win32 C++17 installer with embedded payload, Desktop/Start Menu shortcuts & dependency verifier)`,
-              `- **Linux Self-Contained Installer (\`.sh\`)**: \`rigcheck-installer-${v.calver}.sh\` (Prompts for sudo/package permissions, installs \`pciutils\`/\`mesa-utils\`/\`x11-xserver-utils\`, compiles C++17 probe & creates desktop launcher)`,
-              `- **Portable App Payload (\`.zip\`)**: \`RigCheck-App-Payload-${v.calver}.zip\``,
-              `- **SHA-256 Live Delta Patch (\`.rigpatch.json\`)**: \`rigcheck-patch-${v.calver}.${(v.patchLevel || 0) + 1}.rigpatch.json\``,
+              `- **Windows Native C++ Setup (\`.exe\`)**: \`GameCheck-Setup-${v.calver}.exe\` (Self-extracting Win32 C++17 installer with embedded payload, Desktop/Start Menu shortcuts & uninstaller)`,
+              `- **Linux Self-Contained Installer (\`.sh\`)**: \`gamecheck-installer-${v.calver}.sh\` (Prompts for install folder & dependencies, compiles C++17 GTK3 app & creates desktop launcher)`,
+              `- **Portable App Payload (\`.zip\`)**: \`GameCheck-App-Payload-${v.calver}.zip\``,
+              `- **SHA-256 Live Delta Patch (\`.rigpatch.json\`)**: \`${patchFile}\``,
               "",
               "### Release History",
               historyMd,
