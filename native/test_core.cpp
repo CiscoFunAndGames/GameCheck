@@ -126,6 +126,11 @@ int main() {
         auto cRes = GameCheck::searchComponentDeals("AMD Radeon RX 7800 XT", country, true);
         check(!cRes.deals.empty() && cRes.blockedBadReputationCount >= 3, std::string("Country ") + country + " verified deals & reputation audit");
     }
+    check(GameCheck::normalizeComponentSearchQuery("NVIDIA GeForce RTX 3060 / AMD Radeon RX 6600 XT 12GB") == "RTX 3060", "normalizeComponentSearchQuery() strips multi-GPU alternatives and verbose prefixes");
+    GameCheck::DealEntry offlineDeal;
+    offlineDeal.url = "https://nonexistent.example.invalid/search?q=rtx4070";
+    GameCheck::verifyDealEntryAvailability(offlineDeal, 600);
+    check(offlineDeal.availabilityChecked && !offlineDeal.isAvailable && offlineDeal.availabilityStatus == "UNAVAILABLE", "verifyDealEntryAvailability() flags unreachable store URLs as UNAVAILABLE");
 
     // 7. GPU Driver Suite Detection & Driver App Configuration Advisor
     std::cout << "\n[7/7] Testing GPU Driver Suite Detection & Driver App Advisor...\n";
