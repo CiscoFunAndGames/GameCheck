@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #ifndef GAMECHECK_CORE_HPP
 #define GAMECHECK_CORE_HPP
 

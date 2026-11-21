@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // =============================================================================
 // GameCheck — 100% Pure C++17 Native Desktop GUI Application
 // Style: Modern Dark Slate HUD (Fluent / Linear-Inspired)
@@ -2562,9 +2563,10 @@ static std::wstring buildUpdatesInfoText() {
 
     return L"Version: v" + GameCheck::utf8ToWide(GameCheck::FULL_VERSION) + L"\r\n" +
            updLine + L"\r\n" +
+           L"License: MIT License (Open Source \x2014 CiscoFunAndGames/GameCheck)\r\n" +
            L"Mode: 100% Read-Only \x2022 Non-Invasive \x2022 Anti-Cheat Safe \x2022 0% Idle CPU\r\n" +
            L"Hardware Scan Speed: " + std::to_wstring(static_cast<int>(g_app.detectedSpecs.scanDurationMs)) + L" ms\r\n" +
-           L"Built-in Game Catalog: " + std::to_wstring(GameCheck::getCatalogGames().size()) + L" Titles + Installed Steam/Epic/Xbox Detection\r\n\r\n" +
+           L"Built-in Game Catalog: " + std::to_wstring(GameCheck::getCatalogGames().size()) + L" Titles + Installed Steam/Epic/GOG/Xbox Detection\r\n\r\n" +
            L"Auto-checks GitHub Releases & local .rigpatch.json bundles on startup.";
 }
 
