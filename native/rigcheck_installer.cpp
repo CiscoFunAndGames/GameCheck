@@ -221,7 +221,7 @@ static int runCommandCapture(const std::string& cmd, std::string& outputOut, con
     si.wShowWindow = SW_HIDE;
 
     PROCESS_INFORMATION pi = {};
-    std::wstring wCmd = L"cmd.exe /c " + utf8ToWide(cmd);
+    std::wstring wCmd = L"cmd.exe /s /c \"" + utf8ToWide(cmd) + L"\"";
     std::wstring wDir = utf8ToWide(workingDir);
 
     BOOL ok = CreateProcessW(
@@ -414,10 +414,12 @@ static bool canWriteToDir(const std::string& targetDir) {
 struct SetupDialogState {
     std::string targetDir;
     std::string fullVersion;
+    bool createDesktopShortcut = true;
     bool accepted = false;
     bool done = false;
     HWND hwnd = nullptr;
     HWND hEditPath = nullptr;
+    HWND hChkDesktop = nullptr;
     HWND hBtnBrowse = nullptr;
     HWND hBtnInstall = nullptr;
     HWND hBtnCancel = nullptr;
@@ -430,10 +432,11 @@ struct SetupDialogState {
 
 static SetupDialogState* g_setupDlg = nullptr;
 
-#define IDC_SETUP_EDIT_PATH  1001
-#define IDC_SETUP_BTN_BROWSE 1002
+#define IDC_SETUP_EDIT_PATH   1001
+#define IDC_SETUP_BTN_BROWSE  1002
 #define IDC_SETUP_BTN_INSTALL 1003
-#define IDC_SETUP_BTN_CANCEL 1004
+#define IDC_SETUP_BTN_CANCEL  1004
+#define IDC_SETUP_CHK_DESKTOP 1005
 
 static LRESULT CALLBACK SetupDlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     SetupDialogState* st = g_setupDlg;
@@ -452,46 +455,44 @@ static LRESULT CALLBACK SetupDlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                                         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                         DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
 
-            std::wstring titleText = L"GameCheck Setup \x2014 CalVer v" + utf8ToWide(st->fullVersion);
+            std::wstring titleText = L"GameCheck Setup \x2014 v" + utf8ToWide(st->fullVersion);
             HWND hTitle = CreateWindowExW(0, L"STATIC", titleText.c_str(), WS_CHILD | WS_VISIBLE | SS_LEFT,
                                           20, 16, 480, 26, hwnd, nullptr, nullptr, nullptr);
             SendMessageW(hTitle, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontTitle), TRUE);
 
             HWND hDesc = CreateWindowExW(
                 0, L"STATIC",
-                L"Choose the installation folder. All application files (GameCheck.exe, native probe,\n"
-                L"scripts, and uninstaller) will be installed self-contained inside this folder.",
+                L"Choose where to install GameCheck on your PC.",
                 WS_CHILD | WS_VISIBLE | SS_LEFT,
-                20, 48, 480, 36, hwnd, nullptr, nullptr, nullptr
+                20, 48, 480, 24, hwnd, nullptr, nullptr, nullptr
             );
             SendMessageW(hDesc, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontUi), TRUE);
 
             HWND hLblPath = CreateWindowExW(0, L"STATIC", L"Install Folder:", WS_CHILD | WS_VISIBLE | SS_LEFT,
-                                            20, 94, 200, 20, hwnd, nullptr, nullptr, nullptr);
+                                            20, 84, 200, 20, hwnd, nullptr, nullptr, nullptr);
             SendMessageW(hLblPath, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontBold), TRUE);
 
             st->hEditPath = CreateWindowExW(
                 WS_EX_CLIENTEDGE, L"EDIT", utf8ToWide(st->targetDir).c_str(),
                 WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | WS_TABSTOP,
-                20, 118, 386, 28, hwnd, reinterpret_cast<HMENU>(IDC_SETUP_EDIT_PATH), nullptr, nullptr
+                20, 108, 386, 28, hwnd, reinterpret_cast<HMENU>(IDC_SETUP_EDIT_PATH), nullptr, nullptr
             );
             SendMessageW(st->hEditPath, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontUi), TRUE);
 
             st->hBtnBrowse = CreateWindowExW(
                 0, L"BUTTON", L"Browse...",
                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
-                414, 117, 90, 30, hwnd, reinterpret_cast<HMENU>(IDC_SETUP_BTN_BROWSE), nullptr, nullptr
+                414, 107, 90, 30, hwnd, reinterpret_cast<HMENU>(IDC_SETUP_BTN_BROWSE), nullptr, nullptr
             );
             SendMessageW(st->hBtnBrowse, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontUi), TRUE);
 
-            HWND hNote = CreateWindowExW(
-                0, L"STATIC",
-                L"\x2022 Creates Desktop & Start Menu shortcuts + Uninstall-GameCheck.exe\n"
-                L"\x2022 Administrator UAC permission will be requested if installing to Program Files",
-                WS_CHILD | WS_VISIBLE | SS_LEFT,
-                20, 158, 484, 36, hwnd, nullptr, nullptr, nullptr
+            st->hChkDesktop = CreateWindowExW(
+                0, L"BUTTON", L"Create a Desktop shortcut",
+                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
+                20, 152, 260, 24, hwnd, reinterpret_cast<HMENU>(IDC_SETUP_CHK_DESKTOP), nullptr, nullptr
             );
-            SendMessageW(hNote, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontUi), TRUE);
+            SendMessageW(st->hChkDesktop, WM_SETFONT, reinterpret_cast<WPARAM>(st->hFontUi), TRUE);
+            SendMessageW(st->hChkDesktop, BM_SETCHECK, BST_CHECKED, 0);
 
             st->hBtnInstall = CreateWindowExW(
                 0, L"BUTTON", L"Install",
@@ -565,6 +566,7 @@ static LRESULT CALLBACK SetupDlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                     return 0;
                 }
                 st->targetDir = normalizeWinPath(chosen);
+                st->createDesktopShortcut = (SendMessageW(st->hChkDesktop, BM_GETCHECK, 0, 0) == BST_CHECKED);
                 st->accepted = true;
                 st->done = true;
                 DestroyWindow(hwnd);
@@ -600,10 +602,11 @@ static LRESULT CALLBACK SetupDlgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-static bool showInstallSetupDialog(std::string& targetDirInOut, const std::string& fullVersion) {
+static bool showInstallSetupDialog(std::string& targetDirInOut, bool& createDesktopShortcutOut, const std::string& fullVersion) {
     SetupDialogState st;
     st.targetDir = targetDirInOut;
     st.fullVersion = fullVersion;
+    st.createDesktopShortcut = createDesktopShortcutOut;
     g_setupDlg = &st;
 
     WNDCLASSEXW wc = {};
@@ -649,6 +652,7 @@ static bool showInstallSetupDialog(std::string& targetDirInOut, const std::strin
     g_setupDlg = nullptr;
     if (st.accepted) {
         targetDirInOut = st.targetDir;
+        createDesktopShortcutOut = st.createDesktopShortcut;
         return true;
     }
     return false;
@@ -669,6 +673,7 @@ int main(int argc, char* argv[]) {
     bool checkDepsOnly = false;
     bool silentMode = false;
     bool skipRegistryAndShortcuts = false;
+    bool createDesktopShortcut = true;
     bool skipDeps = false;
     bool uninstallMode = detectedUninstallByName;
     bool elevateSelf = false;
@@ -680,6 +685,7 @@ int main(int argc, char* argv[]) {
         else if (arg == "--check-deps") checkDepsOnly = true;
         else if (arg == "--silent" || arg == "/S" || arg == "/s") silentMode = true;
         else if (arg == "--no-shortcuts" || arg == "--portable") skipRegistryAndShortcuts = true;
+        else if (arg == "--no-desktop-shortcut") createDesktopShortcut = false;
         else if (arg == "--no-deps") skipDeps = true;
         else if (arg == "--uninstall") uninstallMode = true;
         else if (arg == "--elevate") elevateSelf = true;
@@ -846,7 +852,7 @@ int main(int argc, char* argv[]) {
 
     // Interactive Windows Setup Dialog (when not running in --silent mode)
     if (!silentMode) {
-        if (!showInstallSetupDialog(targetDir, fullVersion)) {
+        if (!showInstallSetupDialog(targetDir, createDesktopShortcut, fullVersion)) {
             std::cout << "{\"status\":\"CANCELLED\",\"reason\":\"User cancelled setup dialog\"}" << std::endl;
             return 1;
         }
@@ -857,14 +863,16 @@ int main(int argc, char* argv[]) {
             GetModuleFileNameW(nullptr, selfPathBuf, MAX_PATH);
             std::wstring params = L"--install-dir=\"" + utf8ToWide(targetDir) + L"\" --silent";
             if (skipRegistryAndShortcuts) params += L" --no-shortcuts";
+            if (!createDesktopShortcut) params += L" --no-desktop-shortcut";
             if (skipDeps) params += L" --no-deps";
             bool ok = runElevatedProcess(selfPathBuf, params, true);
             if (!ok) {
+                MessageBoxW(nullptr, L"Installation could not complete (Administrator permission was cancelled or extraction failed).", L"GameCheck Setup", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
                 std::cout << "{\"status\":\"CANCELLED\",\"reason\":\"UAC elevation declined or failed\"}" << std::endl;
                 return 1;
             }
-            std::wstring doneMsg = L"GameCheck (CalVer v" + utf8ToWide(fullVersion) +
-                                   L") has been installed successfully to:\n\n" + utf8ToWide(targetDir);
+            std::wstring doneMsg = L"GameCheck v" + utf8ToWide(fullVersion) +
+                                   L" has been installed successfully to:\n\n" + utf8ToWide(targetDir);
             MessageBoxW(nullptr, doneMsg.c_str(), L"GameCheck — Setup Complete", MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
             std::cout << "{\"status\":\"INSTALLED\",\"calver\":\"" << jsonEscape(calver)
                       << "\",\"installerType\":\"win32-native-cpp-exe\",\"elevated\":true,\"installDir\":\""
@@ -873,7 +881,7 @@ int main(int argc, char* argv[]) {
         }
 
         std::cout << "==============================================================" << std::endl;
-        std::cout << "   GameCheck Native C++ Setup — CalVer v" << fullVersion << std::endl;
+        std::cout << "   GameCheck Setup — v" << fullVersion << std::endl;
         std::cout << "==============================================================" << std::endl;
         std::cout << "Installing to: " << targetDir << std::endl;
     }
@@ -995,18 +1003,20 @@ int main(int argc, char* argv[]) {
             RegCloseKey(hKey);
         }
 
-        std::string userProfile = getEnvVar("USERPROFILE");
-        std::string appData = getEnvVar("APPDATA");
-        if (!userProfile.empty()) {
-            createWindowsShortcut(
-                userProfile + "\\Desktop\\GameCheck.lnk",
-                gameCheckExe,
-                targetDir,
-                "GameCheck — PC Hardware & Game Compatibility Checker"
-            );
+        if (createDesktopShortcut) {
+            wchar_t desktopDirBuf[MAX_PATH] = {};
+            if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_DESKTOPDIRECTORY, nullptr, 0, desktopDirBuf))) {
+                createWindowsShortcut(
+                    wideToUtf8(desktopDirBuf) + "\\GameCheck.lnk",
+                    gameCheckExe,
+                    targetDir,
+                    "GameCheck — PC Hardware & Game Compatibility Checker"
+                );
+            }
         }
-        if (!appData.empty()) {
-            std::string startMenuFolder = appData + "\\Microsoft\\Windows\\Start Menu\\Programs\\GameCheck";
+        wchar_t startProgramsBuf[MAX_PATH] = {};
+        if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PROGRAMS, nullptr, 0, startProgramsBuf))) {
+            std::string startMenuFolder = wideToUtf8(startProgramsBuf) + "\\GameCheck";
             createDirsRecursive(startMenuFolder);
             createWindowsShortcut(
                 startMenuFolder + "\\GameCheck.lnk",
@@ -1024,8 +1034,8 @@ int main(int argc, char* argv[]) {
     }
 
     if (!silentMode) {
-        std::wstring doneMsg = L"GameCheck (CalVer v" + utf8ToWide(fullVersion) +
-                               L") has been installed successfully to:\n\n" + utf8ToWide(targetDir);
+        std::wstring doneMsg = L"GameCheck v" + utf8ToWide(fullVersion) +
+                               L" has been installed successfully to:\n\n" + utf8ToWide(targetDir);
         MessageBoxW(nullptr, doneMsg.c_str(), L"GameCheck — Setup Complete", MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
     }
 

@@ -1,7 +1,7 @@
-d6006e68bae5a2eef87d52e72a2fd4c93662356bacb7c7c7c2e16ecfc0d670ea  GameCheck-Setup-2026.11.17.exe
-d6006e68bae5a2eef87d52e72a2fd4c93662356bacb7c7c7c2e16ecfc0d670ea  RigCheck-Optimizer-Setup-2026.11.17.exe
-497f24d9b4d2e19acc65eb78d4219da163789b3a19fe5c05e9fb6aa0ad89ccc5  gamecheck-installer-2026.11.17.sh
-497f24d9b4d2e19acc65eb78d4219da163789b3a19fe5c05e9fb6aa0ad89ccc5  rigcheck-installer-2026.11.17.sh
-23af3fc79a0a61d676f8cff9e3fd76d8107fae3004b8ee95323dffd96dec27c6  GameCheck-App-Payload-2026.11.17.zip
-23af3fc79a0a61d676f8cff9e3fd76d8107fae3004b8ee95323dffd96dec27c6  RigCheck-App-Payload-2026.11.17.zip
-9f74697caa50c849066bb57149a6fd43976e93dacfe38781b7f4b5af82fe1b57  rigcheck-patch-2026.11.17.3.rigpatch.json
+0c12a5fb1cfb08166470a8c21e5b5e4d8f6170701bcda8ed1559afb4422e3a09  GameCheck-Setup-2026.11.17.exe
+0c12a5fb1cfb08166470a8c21e5b5e4d8f6170701bcda8ed1559afb4422e3a09  RigCheck-Optimizer-Setup-2026.11.17.exe
+c592296ad357d4a5a37f62686d3801ac5ed7536183e05fb463ff04cc92753b95  gamecheck-installer-2026.11.17.sh
+c592296ad357d4a5a37f62686d3801ac5ed7536183e05fb463ff04cc92753b95  rigcheck-installer-2026.11.17.sh
+040275d8b8fb05c5e7ebcdb3bdb4071eccdd487c38c9492698d8ce6a7d94e1fb  GameCheck-App-Payload-2026.11.17.zip
+040275d8b8fb05c5e7ebcdb3bdb4071eccdd487c38c9492698d8ce6a7d94e1fb  RigCheck-App-Payload-2026.11.17.zip
+8bf52860cdd27e6ebedcd8d4962f8c7aa8ba5422614c32ab9055b90ca0d0fa86  rigcheck-patch-2026.11.17.3.rigpatch.json
