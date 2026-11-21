@@ -1,3 +1,32 @@
 #include <windows.h>
 
 101 ICON "../assets/gamecheck.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     2026,11,21,0
+PRODUCTVERSION  2026,11,21,0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0x0L
+FILEOS          VOS__WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "CiscoFunAndGames / GameCheck Contributors"
+            VALUE "FileDescription",  "GameCheck - PC Game & Hardware Advisor (MIT License)"
+            VALUE "FileVersion",      "2026.11.21"
+            VALUE "InternalName",     "GameCheck"
+            VALUE "LegalCopyright",   "Copyright (c) 2026 GameCheck Contributors - MIT License"
+            VALUE "OriginalFilename", "GameCheck.exe"
+            VALUE "ProductName",      "GameCheck"
+            VALUE "ProductVersion",   "2026.11.21"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

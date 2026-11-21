@@ -1,14 +1,94 @@
 {
-  "calver": "2026.11.17",
-  "npmVersion": "2026.11.17-2",
-  "patchLevel": 2,
-  "fullVersion": "2026.11.17.2",
-  "gitTag": "v2026.11.17.2",
+  "calver": "2026.11.21",
+  "npmVersion": "2026.11.21-3",
+  "patchLevel": 3,
+  "fullVersion": "2026.11.21.3",
+  "gitTag": "v2026.11.21.3",
   "scheme": "YYYY.MM.DD[.PATCH]",
   "channel": "stable",
-  "releasedAt": "2026-11-17T22:45:00-03:00",
-  "notes": "CalVer 2026.11.17.2 Release: GameCheck — Pure 100% Native C++17 Desktop GUI Application (Win32 API + GDI+ + ComCtl32 + ComDlg32 on Windows, C++17 on Linux), replacing Electron with a zero-overhead native desktop executable (bin/GameCheck.exe).",
+  "releasedAt": "2026-11-21T03:59:26.749Z",
+  "notes": "Automated CI release build (2aa0d1d)",
   "history": [
+    {
+      "version": "2026.11.21.3",
+      "calver": "2026.11.21",
+      "patchLevel": 3,
+      "gitTag": "v2026.11.21.3",
+      "releasedAt": "2026-11-21T03:59:26.749Z",
+      "notes": "Automated CI release build (2aa0d1d)"
+    },
+    {
+      "version": "2026.11.21.2",
+      "calver": "2026.11.21",
+      "patchLevel": 2,
+      "gitTag": "v2026.11.21.2",
+      "releasedAt": "2026-11-21T03:41:04.900Z",
+      "notes": "Automated CI release build (82d8f6e)"
+    },
+    {
+      "version": "2026.11.21.1",
+      "calver": "2026.11.21",
+      "patchLevel": 1,
+      "gitTag": "v2026.11.21.1",
+      "releasedAt": "2026-11-21T02:37:54.688Z",
+      "notes": "Automated CI release build (bf5d962)"
+    },
+    {
+      "version": "2026.11.21",
+      "calver": "2026.11.21",
+      "patchLevel": 0,
+      "gitTag": "v2026.11.21",
+      "releasedAt": "2026-11-21T01:47:18.337Z",
+      "notes": "Automated CI release build (ea717ba)"
+    },
+    {
+      "version": "2026.11.20.1",
+      "calver": "2026.11.20",
+      "patchLevel": 1,
+      "gitTag": "v2026.11.20.1",
+      "releasedAt": "2026-11-20T21:35:07.019Z",
+      "notes": "Automated CI release build (d77a7b2)"
+    },
+    {
+      "version": "2026.11.20",
+      "calver": "2026.11.20",
+      "patchLevel": 0,
+      "gitTag": "v2026.11.20",
+      "releasedAt": "2026-11-20T01:37:40.731Z",
+      "notes": "Automated CI release build (a7a319e)"
+    },
+    {
+      "version": "2026.11.18.3",
+      "calver": "2026.11.18",
+      "patchLevel": 3,
+      "gitTag": "v2026.11.18.3",
+      "releasedAt": "2026-11-18T03:39:05.219Z",
+      "notes": "Automated CI release build (fd221f2)"
+    },
+    {
+      "version": "2026.11.18.2",
+      "calver": "2026.11.18",
+      "patchLevel": 2,
+      "gitTag": "v2026.11.18.2",
+      "releasedAt": "2026-11-18T03:36:56.895Z",
+      "notes": "Automated CI release build (c23c5f7)"
+    },
+    {
+      "version": "2026.11.18.1",
+      "calver": "2026.11.18",
+      "patchLevel": 1,
+      "gitTag": "v2026.11.18.1",
+      "releasedAt": "2026-11-18T03:30:01.730Z",
+      "notes": "Automated CI release build (07edba2)"
+    },
+    {
+      "version": "2026.11.18",
+      "calver": "2026.11.18",
+      "patchLevel": 0,
+      "gitTag": "v2026.11.18",
+      "releasedAt": "2026-11-18T03:22:13.882Z",
+      "notes": "Automated CI release build (89ef50c)"
+    },
     {
       "version": "2026.11.17.2",
       "calver": "2026.11.17",
