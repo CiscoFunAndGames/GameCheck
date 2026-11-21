@@ -14,9 +14,9 @@ Grab the latest official release from **[GitHub Releases (Latest)](https://githu
 
 | Platform | Download | What It Does |
 | :--- | :--- | :--- |
-| **Windows 10 / 11 (64-bit)** | **[`GameCheck-Setup-2026.11.21.exe`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.3/GameCheck-Setup-2026.11.21.exe)** | Native Windows installer (Desktop & Start Menu shortcuts + Uninstaller) |
-| **Linux (x86_64)** | **[`gamecheck-installer-2026.11.21.sh`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.3/gamecheck-installer-2026.11.21.sh)** | Self-contained GTK3 installer & desktop launcher |
-| **Windows Portable** | **[`GameCheck-App-Payload-2026.11.21.zip`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.3/GameCheck-App-Payload-2026.11.21.zip)** | Extract anywhere and run `bin/GameCheck.exe` without installing |
+| **Windows 10 / 11 (64-bit)** | **[`GameCheck-Setup-2026.11.21.exe`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.4/GameCheck-Setup-2026.11.21.exe)** | Native Windows installer (Desktop & Start Menu shortcuts + Uninstaller) |
+| **Linux (x86_64)** | **[`gamecheck-installer-2026.11.21.sh`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.4/gamecheck-installer-2026.11.21.sh)** | Self-contained GTK3 installer & desktop launcher |
+| **Windows Portable** | **[`GameCheck-App-Payload-2026.11.21.zip`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.4/GameCheck-App-Payload-2026.11.21.zip)** | Extract anywhere and run `bin/GameCheck.exe` without installing |
 
 ### Windows Installation
 1. Open the **[Latest Release](https://github.com/CiscoFunAndGames/GameCheck/releases/latest)** page and download **`GameCheck-Setup-2026.11.21.exe`**.
@@ -70,9 +70,9 @@ Descarga la última versión oficial desde **[GitHub Releases (Última Versión)
 
 | Plataforma | Descarga | Descripción |
 | :--- | :--- | :--- |
-| **Windows 10 / 11 (64-bit)** | **[`GameCheck-Setup-2026.11.21.exe`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.3/GameCheck-Setup-2026.11.21.exe)** | Instalador nativo de Windows (accesos directos + desinstalador) |
-| **Linux (x86_64)** | **[`gamecheck-installer-2026.11.21.sh`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.3/gamecheck-installer-2026.11.21.sh)** | Instalador GTK3 autocontenido con lanzador de escritorio |
-| **Windows Portable** | **[`GameCheck-App-Payload-2026.11.21.zip`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.3/GameCheck-App-Payload-2026.11.21.zip)** | Descomprime y ejecuta `bin/GameCheck.exe` sin instalar |
+| **Windows 10 / 11 (64-bit)** | **[`GameCheck-Setup-2026.11.21.exe`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.4/GameCheck-Setup-2026.11.21.exe)** | Instalador nativo de Windows (accesos directos + desinstalador) |
+| **Linux (x86_64)** | **[`gamecheck-installer-2026.11.21.sh`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.4/gamecheck-installer-2026.11.21.sh)** | Instalador GTK3 autocontenido con lanzador de escritorio |
+| **Windows Portable** | **[`GameCheck-App-Payload-2026.11.21.zip`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.4/GameCheck-App-Payload-2026.11.21.zip)** | Descomprime y ejecuta `bin/GameCheck.exe` sin instalar |
 
 ### Cómo Instalar
 - **Windows:** Descarga `GameCheck-Setup-2026.11.21.exe`, ejecútalo (acepta el permiso de administrador si instalas en `C:\Program Files\GameChecker`), elige la carpeta y haz clic en **Install**.
