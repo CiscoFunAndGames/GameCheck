@@ -36,19 +36,21 @@ using std::max;
 using namespace Gdiplus;
 
 // =============================================================================
-// Minimalist Cyberpunk Palette
+// Modern Dark Slate Palette (Fluent / Linear-Inspired)
 // =============================================================================
 namespace CyberPalette {
-    static const Color VoidCanvas(255, 6, 6, 10);        // #06060A Obsidian Void
-    static const Color PanelSurface(255, 12, 12, 20);    // #0C0C14 Panel Surface
-    static const Color PanelElevated(255, 18, 18, 30);   // #12121E Hover / Elevated
-    static const Color BorderSubtle(255, 34, 36, 54);    // #222436 Hairline Grid
-    static const Color CyberYellow(255, 252, 238, 9);    // #FCEE09 Primary Accent
-    static const Color NeonCrimson(255, 255, 0, 60);     // #FF003C Secondary Accent
-    static const Color NeuralCyan(255, 0, 240, 255);     // #00F0FF Display & Telemetry
-    static const Color AcidGreen(255, 0, 255, 102);      // #00FF66 Ready / Optimal
-    static const Color TextMain(255, 242, 245, 250);     // #F2F5FA Crisp White
-    static const Color TextMuted(255, 148, 158, 176);    // #949EB0 Muted Label
+    static const Color VoidCanvas(255, 13, 17, 23);      // #0D1117 Deep Slate Canvas
+    static const Color PanelSurface(255, 22, 27, 34);    // #161B22 Elevated Card Surface
+    static const Color PanelElevated(255, 31, 38, 49);   // #1F2631 Hover / Active Surface
+    static const Color BorderSubtle(255, 45, 54, 68);    // #2D3644 Subtle 1px Border
+    static const Color CyberYellow(255, 59, 130, 246);   // #3B82F6 Primary Brand Blue
+    static const Color NeonCrimson(255, 244, 63, 94);    // #F43F5E Soft Rose / Warning
+    static const Color NeuralCyan(255, 56, 189, 248);    // #38BDF8 Soft Sky Accent
+    static const Color AcidGreen(255, 16, 185, 129);     // #10B981 Modern Emerald / Ready
+    static const Color AmberWarm(255, 245, 158, 11);     // #F59E0B Warm Amber / Medium
+    static const Color IndigoSoft(255, 129, 140, 248);   // #818CF8 Soft Indigo / Display
+    static const Color TextMain(255, 241, 245, 249);     // #F1F5F9 Crisp Slate White
+    static const Color TextMuted(255, 148, 163, 184);    // #94A3B8 Balanced Muted Gray
 }
 
 // Control IDs
@@ -340,87 +342,52 @@ static Color colorFromHex(uint32_t hex, BYTE alpha = 255) {
 }
 
 // =============================================================================
-// Chamfered 45-degree Cyberpunk Polygon & Bar Renderers
+// Modern Rounded Card & Smooth Pill Progress Bar Renderers
 // =============================================================================
-static void BuildChamferPath(GraphicsPath& path, RectF r, REAL cutTopRight, REAL cutBottomLeft, REAL cutTopLeft = 0.0f, REAL cutBottomRight = 0.0f) {
-    PointF pts[8];
-    int count = 0;
-
-    if (cutTopLeft > 0.5f) {
-        pts[count++] = PointF(r.X, r.Y + cutTopLeft);
-        pts[count++] = PointF(r.X + cutTopLeft, r.Y);
-    } else {
-        pts[count++] = PointF(r.X, r.Y);
+static void BuildChamferPath(GraphicsPath& path, RectF r, REAL radius, REAL /*unused1*/ = 0.0f, REAL /*unused2*/ = 0.0f, REAL /*unused3*/ = 0.0f) {
+    REAL rad = std::max(0.0f, std::min(radius, std::min(r.Width * 0.5f, r.Height * 0.5f)));
+    if (rad < 1.0f) {
+        path.AddRectangle(r);
+        return;
     }
-
-    if (cutTopRight > 0.5f) {
-        pts[count++] = PointF(r.X + r.Width - cutTopRight, r.Y);
-        pts[count++] = PointF(r.X + r.Width, r.Y + cutTopRight);
-    } else {
-        pts[count++] = PointF(r.X + r.Width, r.Y);
-    }
-
-    if (cutBottomRight > 0.5f) {
-        pts[count++] = PointF(r.X + r.Width, r.Y + r.Height - cutBottomRight);
-        pts[count++] = PointF(r.X + r.Width - cutBottomRight, r.Y + r.Height);
-    } else {
-        pts[count++] = PointF(r.X + r.Width, r.Y + r.Height);
-    }
-
-    if (cutBottomLeft > 0.5f) {
-        pts[count++] = PointF(r.X + cutBottomLeft, r.Y + r.Height);
-        pts[count++] = PointF(r.X, r.Y + r.Height - cutBottomLeft);
-    } else {
-        pts[count++] = PointF(r.X, r.Y + r.Height);
-    }
-
-    path.AddPolygon(pts, count);
+    REAL d = rad * 2.0f;
+    path.AddArc(r.X, r.Y, d, d, 180.0f, 90.0f);
+    path.AddArc(r.X + r.Width - d, r.Y, d, d, 270.0f, 90.0f);
+    path.AddArc(r.X + r.Width - d, r.Y + r.Height - d, d, d, 0.0f, 90.0f);
+    path.AddArc(r.X, r.Y + r.Height - d, d, d, 90.0f, 90.0f);
+    path.CloseFigure();
 }
 
-static void DrawCyberPanel(Graphics& g, RectF r, Color fill, Color border, Color accentSlash, REAL cut = 9.0f, bool drawCornerTicks = true, REAL borderThickness = 1.0f) {
+static void DrawCyberPanel(Graphics& g, RectF r, Color fill, Color border, Color /*accentSlash*/, REAL radius = 8.0f, bool /*drawCornerTicks*/ = false, REAL borderThickness = 1.0f) {
     GraphicsPath path;
-    BuildChamferPath(path, r, cut, cut * 0.7f, 0.0f, 0.0f);
+    BuildChamferPath(path, r, std::min(radius, 10.0f));
 
     SolidBrush fillBrush(fill);
     g.FillPath(&fillBrush, &path);
 
-    Pen borderPen(border, borderThickness);
-    g.DrawPath(&borderPen, &path);
-
-    if (accentSlash.GetAlpha() > 0) {
-        SolidBrush slashBrush(accentSlash);
-        REAL slashH = std::max(6.0f, r.Height - cut * 0.7f - 2.0f);
-        g.FillRectangle(&slashBrush, r.X, r.Y + 1.0f, 3.0f, slashH);
-
-        if (cut > 2.0f) {
-            Pen slashPen(accentSlash, 2.0f);
-            g.DrawLine(&slashPen, PointF(r.X + r.Width - cut, r.Y), PointF(r.X + r.Width, r.Y + cut));
-        }
-    }
-
-    if (drawCornerTicks) {
-        Pen tickPen(Color(140, accentSlash.GetR(), accentSlash.GetG(), accentSlash.GetB()), 1.0f);
-        g.DrawLine(&tickPen, r.X + r.Width - 6.0f, r.Y + r.Height - 2.0f, r.X + r.Width - 2.0f, r.Y + r.Height - 2.0f);
-        g.DrawLine(&tickPen, r.X + r.Width - 2.0f, r.Y + r.Height - 6.0f, r.X + r.Width - 2.0f, r.Y + r.Height - 2.0f);
+    if (border.GetAlpha() > 0 && borderThickness > 0.0f) {
+        Pen borderPen(border, borderThickness);
+        g.DrawPath(&borderPen, &path);
     }
 }
 
-static void DrawSegmentedCyberBar(Graphics& g, RectF r, int pct, Color activeColor, int segments = 20) {
-    REAL gap = 2.0f;
-    REAL segW = (r.Width - gap * (segments - 1)) / static_cast<REAL>(segments);
-    if (segW < 2.0f) {
-        segments = 10;
-        segW = (r.Width - gap * (segments - 1)) / static_cast<REAL>(segments);
-    }
-    int activeSegs = std::clamp((pct * segments + 50) / 100, (pct > 0 ? 1 : 0), segments);
+static void DrawSegmentedCyberBar(Graphics& g, RectF r, int pct, Color activeColor, int /*segments*/ = 20) {
+    int clamped = std::clamp(pct, 0, 100);
+    REAL rad = r.Height * 0.5f;
 
-    SolidBrush onBrush(activeColor);
-    SolidBrush offBrush(Color(255, 24, 26, 40));
+    GraphicsPath trackPath;
+    BuildChamferPath(trackPath, r, rad);
+    SolidBrush trackBrush(Color(255, 30, 37, 49));
+    g.FillPath(&trackBrush, &trackPath);
 
-    for (int s = 0; s < segments; ++s) {
-        REAL sx = r.X + s * (segW + gap);
-        RectF segRect(sx, r.Y, segW, r.Height);
-        g.FillRectangle(s < activeSegs ? &onBrush : &offBrush, segRect);
+    if (clamped > 0) {
+        REAL fillW = std::max(r.Height, r.Width * (static_cast<REAL>(clamped) / 100.0f));
+        fillW = std::min(r.Width, fillW);
+        RectF fillRect(r.X, r.Y, fillW, r.Height);
+        GraphicsPath fillPath;
+        BuildChamferPath(fillPath, fillRect, rad);
+        SolidBrush fillBrush(activeColor);
+        g.FillPath(&fillBrush, &fillPath);
     }
 }
 
@@ -515,14 +482,14 @@ static void rebuildGameImageList() {
 static Color verdictColor(const std::string& verdict) {
     if (verdict == "ULTRA READY") return CyberPalette::AcidGreen;
     if (verdict == "RECOMMENDED") return CyberPalette::NeuralCyan;
-    if (verdict == "MINIMUM")     return CyberPalette::CyberYellow;
+    if (verdict == "MINIMUM")     return CyberPalette::AmberWarm;
     return CyberPalette::NeonCrimson;
 }
 
 static Color tierStatusColor(const std::string& status) {
     if (status == "EXCEEDS_RECOMMENDED") return CyberPalette::AcidGreen;
     if (status == "MEETS_RECOMMENDED")   return CyberPalette::NeuralCyan;
-    if (status == "MEETS_MINIMUM")       return CyberPalette::CyberYellow;
+    if (status == "MEETS_MINIMUM")       return CyberPalette::AmberWarm;
     return CyberPalette::NeonCrimson;
 }
 
@@ -997,82 +964,60 @@ static void drawCyberOwnerButton(const DRAWITEMSTRUCT* dis, Color parentBgColor 
     bool isTabBtn = (id >= IDC_BTN_TAB_QUICK && id <= IDC_BTN_TAB_TIPS);
     bool isActiveTab = isTabBtn && (static_cast<int>(id - IDC_BTN_TAB_QUICK) == g_app.activeTab);
 
-    bool isPrimaryCyber = (id == IDC_BTN_RESCAN || id == IDC_BTN_FIND_DEALS || id == IDC_DLG_OK || id == IDC_DLG_SEARCH_DEALS || id == IDC_BTN_SAVE_DRV_MD || isActiveMode);
-    bool isCrimsonBtn = (id == IDC_BTN_DEALS_TOP || (id == IDC_BTN_WHATIF && g_app.isSimulated) || id == IDC_DLG_RESET);
-    bool isCyanBtn = (isActiveTab || id == IDC_DLG_OPEN_BROWSER || id == IDC_DLG_PASTE_CLIP);
+    bool isPrimaryCta = (id == IDC_BTN_RESCAN || id == IDC_BTN_FIND_DEALS || id == IDC_DLG_OK || id == IDC_DLG_SEARCH_DEALS || id == IDC_BTN_SAVE_DRV_MD);
+    bool isAccentReset = ((id == IDC_BTN_WHATIF && g_app.isSimulated) || id == IDC_DLG_RESET);
 
-    Color fillCol = CyberPalette::PanelSurface;
+    Color fillCol = Color(255, 26, 32, 44);
     Color borderCol = CyberPalette::BorderSubtle;
-    Color slashCol = CyberPalette::NeuralCyan;
     Color textCol = CyberPalette::TextMain;
 
-    if (isActiveMode || isPrimaryCyber) {
-        fillCol = Color(255, 26, 24, 10);
-        borderCol = CyberPalette::CyberYellow;
-        slashCol = CyberPalette::CyberYellow;
-        textCol = CyberPalette::CyberYellow;
-    } else if (isCyanBtn) {
-        fillCol = Color(255, 10, 24, 32);
-        borderCol = CyberPalette::NeuralCyan;
-        slashCol = CyberPalette::NeuralCyan;
-        textCol = CyberPalette::NeuralCyan;
-    } else if (isCrimsonBtn) {
-        fillCol = Color(255, 28, 10, 18);
-        borderCol = CyberPalette::NeonCrimson;
-        slashCol = CyberPalette::NeonCrimson;
-        textCol = CyberPalette::TextMain;
+    if (isPrimaryCta) {
+        fillCol = Color(255, 37, 99, 235);     // #2563EB Modern Electric Blue
+        borderCol = Color(255, 59, 130, 246);  // #3B82F6
+        textCol = Color(255, 255, 255, 255);
+    } else if (isActiveMode || isActiveTab) {
+        fillCol = Color(255, 29, 41, 63);      // Soft Indigo-Slate active fill
+        borderCol = CyberPalette::CyberYellow; // #3B82F6
+        textCol = Color(255, 248, 250, 252);
+    } else if (isAccentReset) {
+        fillCol = Color(255, 42, 23, 32);
+        borderCol = Color(255, 190, 56, 84);
+        textCol = Color(255, 253, 164, 175);
     } else if (isModeBtn || isTabBtn) {
         fillCol = CyberPalette::PanelSurface;
-        borderCol = Color(255, 42, 46, 68);
-        slashCol = CyberPalette::TextMuted;
+        borderCol = Color(255, 38, 46, 58);
         textCol = CyberPalette::TextMuted;
     }
 
     if (hoverT > 0.001f) {
-        Color glowFill(
-            255,
-            static_cast<BYTE>(std::min(255, static_cast<int>(fillCol.GetR()) + 14 + static_cast<int>(slashCol.GetR()) / 12)),
-            static_cast<BYTE>(std::min(255, static_cast<int>(fillCol.GetG()) + 14 + static_cast<int>(slashCol.GetG()) / 12)),
-            static_cast<BYTE>(std::min(255, static_cast<int>(fillCol.GetB()) + 20 + static_cast<int>(slashCol.GetB()) / 12))
-        );
-        fillCol = lerpColor(fillCol, glowFill, hoverT);
-
-        Color brightBorder(
-            255,
-            static_cast<BYTE>(std::min(255, static_cast<int>(slashCol.GetR()) + 24)),
-            static_cast<BYTE>(std::min(255, static_cast<int>(slashCol.GetG()) + 24)),
-            static_cast<BYTE>(std::min(255, static_cast<int>(slashCol.GetB()) + 24))
-        );
-        borderCol = lerpColor(borderCol, brightBorder, hoverT);
-
-        if ((isModeBtn || isTabBtn) && !isActiveMode && !isActiveTab) {
-            textCol = lerpColor(textCol, CyberPalette::TextMain, hoverT);
+        if (isPrimaryCta) {
+            fillCol = lerpColor(fillCol, Color(255, 59, 130, 246), hoverT);
+            borderCol = lerpColor(borderCol, Color(255, 96, 165, 250), hoverT);
+        } else if (isActiveMode || isActiveTab) {
+            fillCol = lerpColor(fillCol, Color(255, 36, 52, 78), hoverT);
+            borderCol = lerpColor(borderCol, Color(255, 96, 165, 250), hoverT);
+        } else {
+            fillCol = lerpColor(fillCol, CyberPalette::PanelElevated, hoverT);
+            borderCol = lerpColor(borderCol, Color(255, 71, 85, 105), hoverT);
+            if (isModeBtn || isTabBtn) {
+                textCol = lerpColor(textCol, CyberPalette::TextMain, hoverT);
+            }
         }
     }
 
-    REAL borderThickness = 1.0f + 0.6f * hoverT;
+    REAL borderThickness = 1.0f;
     if (isPressed) {
-        fillCol = Color(255, 36, 36, 54);
-        borderCol = CyberPalette::NeuralCyan;
-        borderThickness = 1.6f;
+        fillCol = isPrimaryCta ? Color(255, 29, 78, 216) : Color(255, 36, 44, 58);
+        borderCol = CyberPalette::CyberYellow;
     }
 
-    REAL pressOff = isPressed ? 1.0f : 0.0f;
+    REAL pressOff = isPressed ? 0.5f : 0.0f;
     RectF btnRect(1.0f + pressOff, 1.0f + pressOff, static_cast<REAL>(w - 2 - (isPressed ? 1 : 0)), static_cast<REAL>(h - 2 - (isPressed ? 1 : 0)));
-    DrawCyberPanel(g, btnRect, fillCol, borderCol, slashCol, 7.0f, false, borderThickness);
+    DrawCyberPanel(g, btnRect, fillCol, borderCol, Color(0, 0, 0, 0), 6.0f, false, borderThickness);
 
-    float slashProgress = isPressed ? 1.0f : hoverT;
-    if (slashProgress > 0.01f) {
-        Color glideCol = isPressed ? CyberPalette::NeuralCyan : slashCol;
-        SolidBrush glideBrush(Color(static_cast<BYTE>(190 * slashProgress + 65), glideCol.GetR(), glideCol.GetG(), glideCol.GetB()));
-        REAL bottomLen = std::max(0.0f, (btnRect.Width - 6.0f) * slashProgress);
-        if (bottomLen > 1.0f) {
-            g.FillRectangle(&glideBrush, btnRect.X + 3.0f, btnRect.Y + btnRect.Height - 2.0f, bottomLen, 2.0f);
-        }
-        REAL leftLen = std::max(0.0f, (btnRect.Height - 6.0f) * slashProgress);
-        if (leftLen > 1.0f) {
-            g.FillRectangle(&glideBrush, btnRect.X, btnRect.Y + 1.0f, 3.0f, leftLen);
-        }
+    if (isActiveTab) {
+        SolidBrush tabBarBrush(CyberPalette::CyberYellow);
+        g.FillRectangle(&tabBarBrush, btnRect.X + 10.0f, btnRect.Y + btnRect.Height - 2.5f, std::max(0.0f, btnRect.Width - 20.0f), 2.5f);
     }
 
     wchar_t textBuf[256] = {};
@@ -1123,11 +1068,6 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
     float easedTab = 1.0f - std::pow(1.0f - rawTabT, 3.0f);
     float easedBar = 1.0f - std::pow(1.0f - rawBarT, 3.0f);
 
-    Pen gridPen(Color(14, 0, 240, 255), 1.0f);
-    for (int gx = 0; gx < w; gx += 64) {
-        g.DrawLine(&gridPen, gx, 0, gx, h);
-    }
-
     FontFamily fontSans(L"Segoe UI");
 
     Font fontTitle(&fontSans, 14.5f, FontStyleBold, UnitPoint);
@@ -1162,33 +1102,30 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
     // =========================================================================
     // 1. HEADER & 4 HARDWARE SUMMARY CARDS
     // =========================================================================
-    SolidBrush topBarBg(Color(255, 9, 9, 15));
+    SolidBrush topBarBg(Color(255, 17, 22, 31));
     g.FillRectangle(&topBarBg, 0, 0, w, 134);
 
     Pen headerLinePen(CyberPalette::BorderSubtle, 1.0f);
     g.DrawLine(&headerLinePen, 0, 134, w, 134);
-    SolidBrush yellowAccentBar(CyberPalette::CyberYellow);
-    g.FillRectangle(&yellowAccentBar, 14, 133, 180, 2);
-    SolidBrush crimsonAccentBar(CyberPalette::NeonCrimson);
-    g.FillRectangle(&crimsonAccentBar, 198, 133, 60, 2);
 
-    // Brand Title
-    g.DrawString(L"GameCheck", -1, &fontTitle, PointF(14.0f, 8.0f), &yellowBrush);
+    // Brand Title (crisp white modern wordmark)
+    g.DrawString(L"GameCheck", -1, &fontTitle, PointF(14.0f, 8.0f), &whiteBrush);
 
     // Version Pill
     RectF verRect(120.0f, 11.0f, 96.0f, 22.0f);
-    DrawCyberPanel(g, verRect, Color(255, 24, 22, 8), CyberPalette::CyberYellow, CyberPalette::CyberYellow, 5.0f, false);
+    DrawCyberPanel(g, verRect, Color(255, 24, 34, 52), Color(255, 48, 72, 112), Color(0, 0, 0, 0), 11.0f, false);
     std::wstring wVer = L"v" + GameCheck::utf8ToWide(GameCheck::FULL_VERSION);
-    g.DrawString(wVer.c_str(), -1, &fontPill, verRect, &centerFmt, &yellowBrush);
+    SolidBrush verTextBrush(Color(255, 147, 197, 253));
+    g.DrawString(wVer.c_str(), -1, &fontPill, verRect, &centerFmt, &verTextBrush);
 
     // Status Pill
     RectF safeRect(222.0f, 11.0f, 116.0f, 22.0f);
-    DrawCyberPanel(g, safeRect, Color(255, 8, 22, 28), CyberPalette::NeuralCyan, CyberPalette::NeuralCyan, 5.0f, false);
-    g.DrawString(tr(L"Read-Only \x2022 Safe", L"Solo Lectura \x2022 Seguro"), -1, &fontPill, safeRect, &centerFmt, &cyanBrush);
+    DrawCyberPanel(g, safeRect, Color(255, 19, 35, 38), Color(255, 34, 84, 78), Color(0, 0, 0, 0), 11.0f, false);
+    g.DrawString(tr(L"Read-Only \x2022 Safe", L"Solo Lectura \x2022 Seguro"), -1, &fontPill, safeRect, &centerFmt, &greenBrush);
 
     // Live Auto-Update Status Pill
     RectF updRect(344.0f, 11.0f, 102.0f, 22.0f);
-    DrawCyberPanel(g, updRect, Color(255, 12, 20, 18), g_app.updatePillColor, g_app.updatePillColor, 5.0f, false);
+    DrawCyberPanel(g, updRect, CyberPalette::PanelSurface, CyberPalette::BorderSubtle, Color(0, 0, 0, 0), 11.0f, false);
     SolidBrush updBrush(g_app.updatePillColor);
     g.DrawString(g_app.updatePillText.c_str(), -1, &fontPill, updRect, &centerFmt, &updBrush);
 
@@ -1249,17 +1186,16 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
             GameCheck::utf8ToWide(std::to_string(sp.display.width) + "x" + std::to_string(sp.display.height) + " @ " + std::to_string(sp.display.refreshRateHz) + "Hz (" + sp.display.tier + ")") + simTag,
             GameCheck::utf8ToWide(sp.display.name) + L" \x2022 " + vrrText,
             std::min(100, (sp.display.refreshRateHz * 100) / 180),
-            CyberPalette::NeonCrimson
+            CyberPalette::IndigoSoft
         }
     };
 
     for (int i = 0; i < 4; ++i) {
         REAL cx = static_cast<REAL>(14 + i * (cardW + cardGap));
         RectF cRect(cx, static_cast<REAL>(cardY), static_cast<REAL>(cardW), static_cast<REAL>(cardH));
-        DrawCyberPanel(g, cRect, CyberPalette::PanelSurface, CyberPalette::BorderSubtle, cards[i].barCol, 9.0f, true);
+        DrawCyberPanel(g, cRect, CyberPalette::PanelSurface, CyberPalette::BorderSubtle, Color(0, 0, 0, 0), 8.0f, false);
 
-        SolidBrush hdrBrush(cards[i].barCol);
-        g.DrawString(cards[i].label.c_str(), -1, &fontCardHdr, PointF(cx + 12.0f, cardY + 7.0f), &hdrBrush);
+        g.DrawString(cards[i].label.c_str(), -1, &fontCardHdr, PointF(cx + 12.0f, cardY + 7.0f), &mutedBrush);
 
         RectF valBox(cx + 12.0f, cardY + 25.0f, cardW - 24.0f, 19.0f);
         g.DrawString(cards[i].mainVal.c_str(), -1, &fontCardVal, valBox, &ellipsisFmt, &whiteBrush);
@@ -1291,35 +1227,40 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
     const auto& game = g_app.allGames[g_app.selectedGameIdx];
     const auto& an = g_app.currentAnalysis;
 
-    // 2A. Hero Game Banner
+    // 2A. Hero Game Banner (clean modern rounded card with subtle gradient)
     RectF bannerRect(rx, ry, rw, 106.0f);
     GraphicsPath heroPath;
-    BuildChamferPath(heroPath, bannerRect, 14.0f, 10.0f, 0.0f, 0.0f);
+    BuildChamferPath(heroPath, bannerRect, 10.0f);
 
+    Color tintRaw = colorFromHex(game.bannerColor2, 255);
+    Color heroRightCol(
+        255,
+        static_cast<BYTE>(20 + tintRaw.GetR() / 6),
+        static_cast<BYTE>(26 + tintRaw.GetG() / 6),
+        static_cast<BYTE>(38 + tintRaw.GetB() / 5)
+    );
     LinearGradientBrush heroGrad(
         PointF(rx, ry),
         PointF(rx + rw, ry + 106.0f),
-        Color(255, 14, 14, 24),
-        colorFromHex(game.bannerColor2, 220)
+        CyberPalette::PanelSurface,
+        heroRightCol
     );
     g.FillPath(&heroGrad, &heroPath);
 
-    Pen scanPen(Color(20, 252, 238, 9), 1.0f);
-    for (REAL sx = rx + 20.0f; sx < rx + rw - 20.0f; sx += 28.0f) {
-        g.DrawLine(&scanPen, sx, ry + 2.0f, sx - 18.0f, ry + 104.0f);
-    }
-
-    Pen heroBorder(CyberPalette::CyberYellow, 1.2f);
+    Pen heroBorder(CyberPalette::BorderSubtle, 1.0f);
     g.DrawPath(&heroBorder, &heroPath);
-
-    SolidBrush heroLeftBar(CyberPalette::CyberYellow);
-    g.FillRectangle(&heroLeftBar, rx, ry + 1.0f, 4.0f, 94.0f);
 
     // Monogram Emblem
     RectF emblemRect(rx + 16.0f, ry + 13.0f, 80.0f, 80.0f);
-    DrawCyberPanel(g, emblemRect, Color(235, 8, 8, 14), colorFromHex(game.accentColor, 255), CyberPalette::CyberYellow, 10.0f, true);
+    Color emblemBg(
+        255,
+        static_cast<BYTE>(22 + tintRaw.GetR() / 5),
+        static_cast<BYTE>(28 + tintRaw.GetG() / 5),
+        static_cast<BYTE>(40 + tintRaw.GetB() / 4)
+    );
+    DrawCyberPanel(g, emblemRect, emblemBg, CyberPalette::BorderSubtle, Color(0, 0, 0, 0), 10.0f, false);
     std::wstring wMono = GameCheck::utf8ToWide(game.monogram);
-    g.DrawString(wMono.c_str(), -1, &fontMonogram, emblemRect, &centerFmt, &yellowBrush);
+    g.DrawString(wMono.c_str(), -1, &fontMonogram, emblemRect, &centerFmt, &whiteBrush);
 
     // Game Title & Metadata
     std::wstring wTitle = GameCheck::utf8ToWide(game.title);
@@ -1336,12 +1277,14 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
         (game.supportsRT ? " \xE2\x80\xA2 Ray Tracing" : "")
     );
     RectF metaBox(rx + 110.0f, ry + 41.0f, rw - 320.0f, 18.0f);
-    g.DrawString(wMeta.c_str(), -1, &fontCardSub, metaBox, &ellipsisFmt, &cyanBrush);
+    g.DrawString(wMeta.c_str(), -1, &fontCardSub, metaBox, &ellipsisFmt, &mutedBrush);
 
     // Play Status Pill
     RectF statusPill(rx + 110.0f, ry + 66.0f, 152.0f, 24.0f);
-    Color stAccent = (game.playStatus == "PLAYING_NOW") ? CyberPalette::AcidGreen : (game.installed ? CyberPalette::NeuralCyan : CyberPalette::TextMuted);
-    DrawCyberPanel(g, statusPill, Color(230, 10, 12, 20), stAccent, stAccent, 6.0f, false);
+    Color stAccent = (game.playStatus == "PLAYING_NOW" || game.installed) ? CyberPalette::AcidGreen : CyberPalette::TextMuted;
+    Color stBg = game.installed ? Color(255, 18, 38, 34) : Color(255, 24, 30, 40);
+    Color stBorder = game.installed ? Color(255, 30, 92, 76) : CyberPalette::BorderSubtle;
+    DrawCyberPanel(g, statusPill, stBg, stBorder, Color(0, 0, 0, 0), 12.0f, false);
     std::wstring wPlayBadge = playStatusDisplayBadge(game);
     SolidBrush stTextBrush(stAccent);
     g.DrawString(wPlayBadge.c_str(), -1, &fontPill, statusPill, &centerFmt, &stTextBrush);
@@ -1353,7 +1296,9 @@ static void paintDashboard(HWND hwnd, HDC hdc) {
 
     RectF verdictPill(rx + rw - 186.0f, ry + 22.0f, 172.0f, 28.0f);
     Color vCol = verdictColor(an.verdictBadge);
-    DrawCyberPanel(g, verdictPill, Color(235, 10, 10, 18), vCol, vCol, 7.0f, false);
+    Color vBg(255, static_cast<BYTE>(18 + vCol.GetR() / 10), static_cast<BYTE>(22 + vCol.GetG() / 10), static_cast<BYTE>(30 + vCol.GetB() / 10));
+    Color vBorder(160, vCol.GetR(), vCol.GetG(), vCol.GetB());
+    DrawCyberPanel(g, verdictPill, vBg, vBorder, Color(0, 0, 0, 0), 8.0f, false);
     SolidBrush vTextBrush(vCol);
     std::wstring wVerdict = translateVerdict(an.verdictBadge);
     g.DrawString(wVerdict.c_str(), -1, &fontSection, verdictPill, &centerFmt, &vTextBrush);
@@ -2663,8 +2608,8 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             g_app.hFontTitle = CreateFontW(-15, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                                            OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                            DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-            g_app.hBrushDarkEdit = CreateSolidBrush(RGB(18, 18, 30));
-            g_app.hBrushDlgBg = CreateSolidBrush(RGB(12, 12, 20));
+            g_app.hBrushDarkEdit = CreateSolidBrush(RGB(26, 32, 44));
+            g_app.hBrushDlgBg = CreateSolidBrush(RGB(16, 20, 28));
             g_app.hListImg = nullptr;
 
             auto makeCyberBtn = [&](const wchar_t* text, int id) -> HWND {
@@ -2718,7 +2663,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                                              GetModuleHandleW(nullptr), nullptr);
             SendMessageW(g_app.hwndList, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.hFontUi), TRUE);
             ListView_SetExtendedListViewStyle(g_app.hwndList, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
-            ListView_SetBkColor(g_app.hwndList, RGB(8, 8, 14));
+            ListView_SetBkColor(g_app.hwndList, RGB(18, 23, 31));
             ListView_SetTextBkColor(g_app.hwndList, RGB(8, 8, 14));
             ListView_SetTextColor(g_app.hwndList, RGB(236, 240, 248));
 
@@ -2942,15 +2887,15 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 LPNMLVCUSTOMDRAW lvcd = reinterpret_cast<LPNMLVCUSTOMDRAW>(lParam);
                 if (lvcd->nmcd.dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
                 if (lvcd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT) {
-                    lvcd->clrText = RGB(236, 240, 248);
-                    lvcd->clrTextBk = (lvcd->nmcd.dwItemSpec % 2 == 0) ? RGB(8, 8, 14) : RGB(14, 14, 24);
+                    lvcd->clrText = RGB(241, 245, 249);
+                    lvcd->clrTextBk = (lvcd->nmcd.dwItemSpec % 2 == 0) ? RGB(18, 23, 31) : RGB(23, 29, 39);
                     return CDRF_NOTIFYSUBITEMDRAW;
                 }
                 if (lvcd->nmcd.dwDrawStage == (CDDS_SUBITEM | CDDS_ITEMPREPAINT)) {
-                    if (lvcd->iSubItem == 1) lvcd->clrText = RGB(0, 240, 255);
-                    else if (lvcd->iSubItem == 2) lvcd->clrText = RGB(0, 255, 102);
-                    else if (lvcd->iSubItem == 3) lvcd->clrText = RGB(252, 238, 9);
-                    else if (lvcd->iSubItem == 4) lvcd->clrText = RGB(148, 160, 180);
+                    if (lvcd->iSubItem == 1) lvcd->clrText = RGB(56, 189, 248);
+                    else if (lvcd->iSubItem == 2) lvcd->clrText = RGB(16, 185, 129);
+                    else if (lvcd->iSubItem == 3) lvcd->clrText = RGB(245, 158, 11);
+                    else if (lvcd->iSubItem == 4) lvcd->clrText = RGB(148, 163, 184);
                     return CDRF_NEWFONT;
                 }
             }
@@ -2975,19 +2920,15 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                         int idx = static_cast<int>(lvcd->nmcd.lItemlParam);
                         bool isSel = (ListView_GetItemState(g_app.hwndList, static_cast<int>(lvcd->nmcd.dwItemSpec), LVIS_SELECTED) & LVIS_SELECTED) != 0;
                         if (isSel) {
-                            lvcd->clrText = RGB(252, 238, 9);
-                            lvcd->clrTextBk = RGB(26, 24, 12);
+                            lvcd->clrText = RGB(248, 250, 252);
+                            lvcd->clrTextBk = RGB(31, 46, 72);
                         } else if (idx >= 0 && idx < static_cast<int>(g_app.allGames.size())) {
                             const auto& gm = g_app.allGames[idx];
-                            if (gm.playStatus == "PLAYING_NOW") {
-                                lvcd->clrText = RGB(0, 255, 102);
-                                lvcd->clrTextBk = RGB(8, 24, 16);
-                            } else if (gm.installed) {
-                                lvcd->clrText = RGB(0, 240, 255);
-                                lvcd->clrTextBk = RGB(10, 18, 28);
+                            lvcd->clrText = RGB(236, 242, 248);
+                            if (gm.installed) {
+                                lvcd->clrTextBk = (lvcd->nmcd.dwItemSpec % 2 == 0) ? RGB(20, 28, 36) : RGB(24, 33, 43);
                             } else {
-                                lvcd->clrText = RGB(236, 240, 248);
-                                lvcd->clrTextBk = (lvcd->nmcd.dwItemSpec % 2 == 0) ? RGB(8, 8, 14) : RGB(13, 13, 22);
+                                lvcd->clrTextBk = (lvcd->nmcd.dwItemSpec % 2 == 0) ? RGB(18, 23, 31) : RGB(22, 27, 36);
                             }
                         }
                         return CDRF_NOTIFYSUBITEMDRAW;
@@ -2995,12 +2936,18 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     if (lvcd->nmcd.dwDrawStage == (CDDS_SUBITEM | CDDS_ITEMPREPAINT)) {
                         int idx = static_cast<int>(lvcd->nmcd.lItemlParam);
                         bool isSel = (ListView_GetItemState(g_app.hwndList, static_cast<int>(lvcd->nmcd.dwItemSpec), LVIS_SELECTED) & LVIS_SELECTED) != 0;
-                        if (!isSel && lvcd->iSubItem == 2 && idx >= 0 && idx < static_cast<int>(g_app.allGames.size())) {
+                        if (!isSel && idx >= 0 && idx < static_cast<int>(g_app.allGames.size())) {
                             const auto& gm = g_app.allGames[idx];
-                            auto ga = GameCheck::analyzeGame(g_app.activeSpecs, gm, g_app.activeOptMode);
-                            Color vc = verdictColor(ga.verdictBadge);
-                            lvcd->clrText = RGB(vc.GetR(), vc.GetG(), vc.GetB());
-                            return CDRF_NEWFONT;
+                            if (lvcd->iSubItem == 1) {
+                                lvcd->clrText = gm.installed ? RGB(52, 211, 153) : RGB(148, 163, 184);
+                                return CDRF_NEWFONT;
+                            }
+                            if (lvcd->iSubItem == 2) {
+                                auto ga = GameCheck::analyzeGame(g_app.activeSpecs, gm, g_app.activeOptMode);
+                                Color vc = verdictColor(ga.verdictBadge);
+                                lvcd->clrText = RGB(vc.GetR(), vc.GetG(), vc.GetB());
+                                return CDRF_NEWFONT;
+                            }
                         }
                     }
                 }
