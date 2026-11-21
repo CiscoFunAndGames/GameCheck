@@ -262,20 +262,26 @@ jobs:
           '
 
       - name: Create or Update GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.build-windows.outputs.full_version }}
-          name: GameCheck v${{ needs.build-windows.outputs.full_version }} (CalVer ${{ needs.build-windows.outputs.calver }})
-          body_path: RELEASE_NOTES.md
-          draft: false
-          prerelease: false
-          files: |
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REL_TAG: v${{ needs.build-windows.outputs.full_version }}
+          REL_NAME: GameCheck v${{ needs.build-windows.outputs.full_version }} (CalVer ${{ needs.build-windows.outputs.calver }})
+        run: |
+          shopt -s nullglob
+          ASSETS=(
             release-assets/GameCheck-Setup-*.exe
             release-assets/gamecheck-installer-*.sh
             release-assets/GameCheck-App-Payload-*.zip
             release-assets/rigcheck-patch-*.rigpatch.json
             release-assets/SHA256SUMS.txt
             release-assets/release-manifest.json
+          )
+          if gh release view "$REL_TAG" >/dev/null 2>&1; then
+            gh release edit "$REL_TAG" --title "$REL_NAME" --notes-file RELEASE_NOTES.md
+            gh release upload "$REL_TAG" "${ASSETS[@]}" --clobber
+          else
+            gh release create "$REL_TAG" "${ASSETS[@]}" --title "$REL_NAME" --notes-file RELEASE_NOTES.md
+          fi
 
       - name: Sync main back into dev
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
