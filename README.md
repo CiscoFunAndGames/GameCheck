@@ -21,6 +21,8 @@ Grab the latest official release from **[GitHub Releases (Latest)](https://githu
 ### Windows Installation
 1. Open the **[Latest Release](https://github.com/CiscoFunAndGames/GameCheck/releases/latest)** page and download **`GameCheck-Setup-2026.11.21.exe`**.
 2. Double-click the `.exe` (approve the administrator prompt if installing to `C:\Program Files\GameChecker`).
+   > [!NOTE]
+   > **Windows SmartScreen:** Because GameCheck is a free open-source MIT project without a paid Authenticode certificate yet, Windows may show *"Windows protected your PC"*. Click **More info** → **Run anyway** (you can also verify the file's hash against `SHA256SUMS.txt` on the release page).
 3. Choose your install folder, keep **Create a Desktop shortcut** checked if you want one, and click **Install**.
 4. *(To uninstall later: open Windows **Installed Apps** and select **GameCheck**, or run `Uninstall-GameCheck.exe` in the install folder.)*
 
@@ -74,6 +76,7 @@ Descarga la última versión oficial desde **[GitHub Releases (Última Versión)
 
 ### Cómo Instalar
 - **Windows:** Descarga `GameCheck-Setup-2026.11.21.exe`, ejecútalo (acepta el permiso de administrador si instalas en `C:\Program Files\GameChecker`), elige la carpeta y haz clic en **Install**.
+  > *(Nota sobre **Windows SmartScreen**: al ser un proyecto open-source bajo licencia MIT sin certificado comercial pago, Windows puede mostrar "Windows protegió su PC". Haz clic en **Más información** → **Ejecutar de todas formas**; también puedes verificar el `SHA-256` en `SHA256SUMS.txt`.)*
 - **Linux:** Descarga `gamecheck-installer-2026.11.21.sh` y ejecuta en terminal:
   ```bash
   chmod +x gamecheck-installer-*.sh
