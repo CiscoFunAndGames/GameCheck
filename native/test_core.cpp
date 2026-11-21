@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // =============================================================================
 // GameCheck — Pure C++17 Core Engine Unit & Integration Test Suite
 // Compile:
