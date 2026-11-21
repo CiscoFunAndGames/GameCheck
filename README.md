@@ -14,18 +14,18 @@ Grab the latest official release from **[GitHub Releases (Latest)](https://githu
 
 | Platform | Download | What It Does |
 | :--- | :--- | :--- |
-| **Windows 10 / 11 (64-bit)** | **[`GameCheck-Setup-*.exe`](https://github.com/CiscoFunAndGames/GameCheck/releases/latest)** | Native Windows installer (Desktop & Start Menu shortcuts + Uninstaller) |
-| **Linux (x86_64)** | **[`gamecheck-installer-*.sh`](https://github.com/CiscoFunAndGames/GameCheck/releases/latest)** | Self-contained GTK3 installer & desktop launcher |
-| **Windows Portable** | **[`GameCheck-App-Payload-*.zip`](https://github.com/CiscoFunAndGames/GameCheck/releases/latest)** | Extract anywhere and run `bin/GameCheck.exe` without installing |
+| **Windows 10 / 11 (64-bit)** | **[`GameCheck-Setup-2026.11.21.exe`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.3/GameCheck-Setup-2026.11.21.exe)** | Native Windows installer (Desktop & Start Menu shortcuts + Uninstaller) |
+| **Linux (x86_64)** | **[`gamecheck-installer-2026.11.21.sh`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.3/gamecheck-installer-2026.11.21.sh)** | Self-contained GTK3 installer & desktop launcher |
+| **Windows Portable** | **[`GameCheck-App-Payload-2026.11.21.zip`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.3/GameCheck-App-Payload-2026.11.21.zip)** | Extract anywhere and run `bin/GameCheck.exe` without installing |
 
 ### Windows Installation
-1. Open the **[Latest Release](https://github.com/CiscoFunAndGames/GameCheck/releases/latest)** page and download **`GameCheck-Setup-<version>.exe`**.
+1. Open the **[Latest Release](https://github.com/CiscoFunAndGames/GameCheck/releases/latest)** page and download **`GameCheck-Setup-2026.11.21.exe`**.
 2. Double-click the `.exe` (approve the administrator prompt if installing to `C:\Program Files\GameChecker`).
 3. Choose your install folder, keep **Create a Desktop shortcut** checked if you want one, and click **Install**.
 4. *(To uninstall later: open Windows **Installed Apps** and select **GameCheck**, or run `Uninstall-GameCheck.exe` in the install folder.)*
 
 ### Linux Installation
-1. Download **`gamecheck-installer-<version>.sh`** from the **[Latest Release](https://github.com/CiscoFunAndGames/GameCheck/releases/latest)** page.
+1. Download **`gamecheck-installer-2026.11.21.sh`** from the **[Latest Release](https://github.com/CiscoFunAndGames/GameCheck/releases/latest)** page.
 2. Run it in your terminal:
    ```bash
    chmod +x gamecheck-installer-*.sh
@@ -68,13 +68,13 @@ Descarga la última versión oficial desde **[GitHub Releases (Última Versión)
 
 | Plataforma | Descarga | Descripción |
 | :--- | :--- | :--- |
-| **Windows 10 / 11 (64-bit)** | **[`GameCheck-Setup-*.exe`](https://github.com/CiscoFunAndGames/GameCheck/releases/latest)** | Instalador nativo de Windows (accesos directos + desinstalador) |
-| **Linux (x86_64)** | **[`gamecheck-installer-*.sh`](https://github.com/CiscoFunAndGames/GameCheck/releases/latest)** | Instalador GTK3 autocontenido con lanzador de escritorio |
-| **Windows Portable** | **[`GameCheck-App-Payload-*.zip`](https://github.com/CiscoFunAndGames/GameCheck/releases/latest)** | Descomprime y ejecuta `bin/GameCheck.exe` sin instalar |
+| **Windows 10 / 11 (64-bit)** | **[`GameCheck-Setup-2026.11.21.exe`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.3/GameCheck-Setup-2026.11.21.exe)** | Instalador nativo de Windows (accesos directos + desinstalador) |
+| **Linux (x86_64)** | **[`gamecheck-installer-2026.11.21.sh`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.3/gamecheck-installer-2026.11.21.sh)** | Instalador GTK3 autocontenido con lanzador de escritorio |
+| **Windows Portable** | **[`GameCheck-App-Payload-2026.11.21.zip`](https://github.com/CiscoFunAndGames/GameCheck/releases/download/v2026.11.21.3/GameCheck-App-Payload-2026.11.21.zip)** | Descomprime y ejecuta `bin/GameCheck.exe` sin instalar |
 
 ### Cómo Instalar
-- **Windows:** Descarga `GameCheck-Setup-<versión>.exe`, ejecútalo (acepta el permiso de administrador si instalas en `C:\Program Files\GameChecker`), elige la carpeta y haz clic en **Install**.
-- **Linux:** Descarga `gamecheck-installer-<versión>.sh` y ejecuta en terminal:
+- **Windows:** Descarga `GameCheck-Setup-2026.11.21.exe`, ejecútalo (acepta el permiso de administrador si instalas en `C:\Program Files\GameChecker`), elige la carpeta y haz clic en **Install**.
+- **Linux:** Descarga `gamecheck-installer-2026.11.21.sh` y ejecuta en terminal:
   ```bash
   chmod +x gamecheck-installer-*.sh
   ./gamecheck-installer-*.sh
