@@ -325,6 +325,7 @@ jobs:
             fi
             git push -f origin "$SYNC_BRANCH"
             gh pr create --base dev --head "$SYNC_BRANCH" \
+              --reviewer FranciscoFlorio25 \
               --title "chore(release): sync v${FULL_VER} metadata & README links into dev" \
               --body "Automated post-release sync of \`version.json\`, \`package.json\`, and \`README.md\` download links for \`v${FULL_VER}\`." || true
           fi
