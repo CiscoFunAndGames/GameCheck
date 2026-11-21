@@ -47,6 +47,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace GameCheck {
@@ -3465,6 +3466,10 @@ struct DealEntry {
     std::string condition = "New";
     bool reputationVerified = true;
     std::string blockReason;
+    bool availabilityChecked = false;
+    bool isAvailable = true;
+    int httpStatusCode = 0;
+    std::string availabilityStatus = "PENDING"; // PENDING, AVAILABLE, UNAVAILABLE, PROTECTED
 };
 
 struct DealSearchResult {
@@ -3661,6 +3666,189 @@ inline DealEntry buildDealEntryFromCandidate(const SellerCandidate& cand, double
     d.reputationVerified = rep.approved;
     d.blockReason = rep.primaryReason;
     return d;
+}
+
+inline std::string normalizeComponentSearchQuery(const std::string& rawQuery) {
+    std::string q = trim(rawQuery);
+    if (q.empty()) return "RX 7800 XT";
+
+    // If a game requirement lists alternatives ("RTX 3060 / RX 6600 XT" or "RTX 3060 or RX 6600"), take the first GPU/CPU
+    size_t slashPos = q.find('/');
+    if (slashPos != std::string::npos) q = trim(q.substr(0, slashPos));
+    std::string low = toLower(q);
+    size_t orPos = low.find(" or ");
+    if (orPos != std::string::npos) q = trim(q.substr(0, orPos));
+
+    // Strip verbose brand prefixes & trailing VRAM sizes ("12GB", "8 GB") that hurt store search matches
+    const char* prefixes[] = { "NVIDIA GeForce ", "AMD Radeon ", "Intel Arc " };
+    for (const char* p : prefixes) {
+        std::string sp(p);
+        if (q.size() > sp.size() && toLower(q.substr(0, sp.size())) == toLower(sp)) {
+            q = trim(q.substr(sp.size()));
+            break;
+        }
+    }
+    q = std::regex_replace(q, std::regex("\\s+\\d+\\s*GB$", std::regex::icase), "");
+    return trim(q).empty() ? "RX 7800 XT" : trim(q);
+}
+
+inline void verifyDealEntryAvailability(DealEntry& d, int timeoutMs = 2800) {
+    d.availabilityChecked = true;
+    d.isAvailable = true;
+    d.httpStatusCode = 0;
+
+    if (d.url.rfind("https://", 0) != 0) {
+        d.isAvailable = false;
+        d.availabilityStatus = "UNAVAILABLE";
+        return;
+    }
+
+#ifdef _WIN32
+    std::wstring wUrl = utf8ToWide(d.url);
+    URL_COMPONENTS uc = {};
+    uc.dwStructSize = sizeof(uc);
+    wchar_t hostBuf[256] = {};
+    wchar_t pathBuf[2048] = {};
+    uc.lpszHostName = hostBuf;
+    uc.dwHostNameLength = 255;
+    uc.lpszUrlPath = pathBuf;
+    uc.dwUrlPathLength = 2047;
+    if (!WinHttpCrackUrl(wUrl.c_str(), static_cast<DWORD>(wUrl.size()), 0, &uc)) {
+        d.availabilityStatus = "PROTECTED";
+        return;
+    }
+
+    HINTERNET hSession = WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) GameCheck/1.0",
+                                     WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                     WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) {
+        d.availabilityStatus = "PROTECTED";
+        return;
+    }
+    WinHttpSetTimeouts(hSession, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
+
+    HINTERNET hConnect = WinHttpConnect(hSession, hostBuf, uc.nPort, 0);
+    if (!hConnect) {
+        WinHttpCloseHandle(hSession);
+        d.isAvailable = false;
+        d.availabilityStatus = "UNAVAILABLE";
+        return;
+    }
+
+    DWORD flags = (uc.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", pathBuf, nullptr,
+                                            WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!hRequest) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        d.availabilityStatus = "PROTECTED";
+        return;
+    }
+
+    DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
+    WinHttpSetOption(hRequest, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
+
+    const wchar_t* hdrs = L"Accept: text/html,application/xhtml+xml\r\nAccept-Language: es-AR,es;q=0.9,en;q=0.8\r\n";
+    BOOL ok = WinHttpSendRequest(hRequest, hdrs, static_cast<DWORD>(-1), WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+              WinHttpReceiveResponse(hRequest, nullptr);
+
+    std::string body;
+    if (ok) {
+        DWORD statusCode = 0;
+        DWORD scSize = sizeof(statusCode);
+        WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                            WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &scSize, WINHTTP_NO_HEADER_INDEX);
+        d.httpStatusCode = static_cast<int>(statusCode);
+
+        // Read up to 64 KB to inspect availability / empty-search markers
+        DWORD avail = 0;
+        while (body.size() < 65536 && WinHttpQueryDataAvailable(hRequest, &avail) && avail > 0) {
+            DWORD toRead = std::min<DWORD>(avail, static_cast<DWORD>(65536 - body.size()));
+            std::string chunk(toRead, '\0');
+            DWORD readBytes = 0;
+            if (WinHttpReadData(hRequest, &chunk[0], toRead, &readBytes) && readBytes > 0) {
+                chunk.resize(readBytes);
+                body += chunk;
+            } else {
+                break;
+            }
+        }
+    }
+
+    WinHttpCloseHandle(hRequest);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+
+    if (!ok || d.httpStatusCode == 404 || d.httpStatusCode == 410 || d.httpStatusCode >= 500) {
+        d.isAvailable = false;
+        d.availabilityStatus = "UNAVAILABLE";
+        return;
+    }
+    if (d.httpStatusCode == 403 || d.httpStatusCode == 429) {
+        d.isAvailable = true;
+        d.availabilityStatus = "PROTECTED";
+        return;
+    }
+
+    std::string low = toLower(body);
+    if (low.find("cf-browser-verification") != std::string::npos ||
+        low.find("just a moment...") != std::string::npos ||
+        low.find("challenge-platform") != std::string::npos) {
+        d.isAvailable = true;
+        d.availabilityStatus = "PROTECTED";
+        return;
+    }
+
+    const char* emptyMarkers[] = {
+        "no se encontraron productos",
+        "no se encontraron resultados",
+        "no encontramos productos",
+        "no encontramos resultados",
+        "no hay productos que coincidan",
+        "no hay publicaciones que coincidan",
+        "sin resultados para",
+        "0 resultados",
+        "no products found",
+        "did not match any products",
+        "we couldn't find any matches",
+        "0 results found",
+        "nenhum produto encontrado",
+        "nao encontramos resultados"
+    };
+    for (const char* marker : emptyMarkers) {
+        if (low.find(marker) != std::string::npos) {
+            d.isAvailable = false;
+            d.availabilityStatus = "UNAVAILABLE";
+            return;
+        }
+    }
+    d.isAvailable = true;
+    d.availabilityStatus = "AVAILABLE";
+#else
+    d.availabilityStatus = "PROTECTED";
+#endif
+}
+
+inline void verifyDealsAvailability(DealSearchResult& res) {
+    if (!res.firewallAuthorized || res.deals.empty()) return;
+    std::vector<std::thread> workers;
+    workers.reserve(res.deals.size());
+    for (auto& deal : res.deals) {
+        workers.emplace_back([&deal]() {
+            verifyDealEntryAvailability(deal, 2800);
+        });
+    }
+    for (auto& t : workers) {
+        if (t.joinable()) t.join();
+    }
+    auto rankOf = [](const DealEntry& d) {
+        if (d.availabilityStatus == "AVAILABLE") return 2;
+        if (d.availabilityStatus == "PROTECTED") return 1;
+        return 0;
+    };
+    std::stable_sort(res.deals.begin(), res.deals.end(), [&](const DealEntry& a, const DealEntry& b) {
+        return rankOf(a) > rankOf(b);
+    });
 }
 
 inline DealSearchResult searchComponentDeals(const std::string& rawQuery, const std::string& rawCountryCode = "AR", bool autoAuthorize = false) {

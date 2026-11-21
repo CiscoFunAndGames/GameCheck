@@ -1943,14 +1943,72 @@ static HWND makeDlgButton(HWND parent, const wchar_t* text, int x, int y, int w,
 // 1. INTERACTIVE COMPONENT PRICE & DEALS FINDER DIALOG
 // =============================================================================
 struct DealsDlgState {
+    static constexpr UINT WM_APP_DEALS_VERIFIED = WM_APP + 11;
     HWND comboCountry = nullptr;
     HWND editQuery = nullptr;
     HWND lblFirewall = nullptr;
     HWND lblSummary = nullptr;
     HWND listDeals = nullptr;
     GameCheck::DealSearchResult lastResult;
+    uint64_t verifySeq = 0;
 };
 static DealsDlgState g_dealsDlg;
+
+static std::wstring dealAvailabilityLabel(const GameCheck::DealEntry& d) {
+    if (d.availabilityStatus == "AVAILABLE")   return tr(L"Available", L"Disponible");
+    if (d.availabilityStatus == "UNAVAILABLE") return tr(L"Unavailable", L"Sin Stock");
+    if (d.availabilityStatus == "PROTECTED")   return tr(L"Check Store", L"Ver Tienda");
+    return tr(L"Checking...", L"Verificando...");
+}
+
+static void populateDealsListView(HWND dlg, bool checkingInProgress) {
+    const auto& res = g_dealsDlg.lastResult;
+    ListView_DeleteAllItems(g_dealsDlg.listDeals);
+
+    int availCount = 0;
+    int unavailCount = 0;
+    for (size_t i = 0; i < res.deals.size(); ++i) {
+        const auto& d = res.deals[i];
+        if (d.availabilityStatus == "AVAILABLE") ++availCount;
+        else if (d.availabilityStatus == "UNAVAILABLE") ++unavailCount;
+
+        std::wstring wStore = GameCheck::utf8ToWide(d.storeName);
+        std::wstringstream ts;
+        ts << std::fixed << std::setprecision(1) << d.trustScore << L"/10 (" << d.positiveRatingPct << L"%+)";
+        std::wstring wTrust = ts.str();
+        std::wstring wPrice = GameCheck::utf8ToWide(d.formattedPrice);
+        std::wstring wAvail = dealAvailabilityLabel(d);
+        std::wstring wBadge = GameCheck::utf8ToWide(d.badge.empty() ? (d.isOfficialStore ? "Official Store" : "Verified Seller") : d.badge);
+
+        LVITEMW lvi = {};
+        lvi.mask = LVIF_TEXT;
+        lvi.iItem = static_cast<int>(i);
+        lvi.pszText = const_cast<LPWSTR>(wStore.c_str());
+        ListView_InsertItem(g_dealsDlg.listDeals, &lvi);
+
+        ListView_SetItemText(g_dealsDlg.listDeals, static_cast<int>(i), 1, const_cast<LPWSTR>(wTrust.c_str()));
+        ListView_SetItemText(g_dealsDlg.listDeals, static_cast<int>(i), 2, const_cast<LPWSTR>(wPrice.c_str()));
+        ListView_SetItemText(g_dealsDlg.listDeals, static_cast<int>(i), 3, const_cast<LPWSTR>(wAvail.c_str()));
+        ListView_SetItemText(g_dealsDlg.listDeals, static_cast<int>(i), 4, const_cast<LPWSTR>(wBadge.c_str()));
+    }
+
+    if (!res.deals.empty()) {
+        ListView_SetItemState(g_dealsDlg.listDeals, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    }
+
+    std::string statusNote = checkingInProgress
+        ? (g_app.isSpanish ? "Verificando stock en tiendas..." : "Checking live store availability...")
+        : (std::to_string(availCount) + (g_app.isSpanish ? " con stock verificado" : " available") +
+           (unavailCount > 0 ? (", " + std::to_string(unavailCount) + (g_app.isSpanish ? " sin stock" : " unavailable")) : ""));
+
+    std::wstring summary = GameCheck::utf8ToWide(
+        std::to_string(res.verifiedCount) + " Stores (" + statusNote + ") \xE2\x80\xA2 " +
+        std::to_string(res.blockedBadReputationCount) + " Scam/Risk Blocked \xE2\x80\xA2 Ref: " +
+        res.formattedMarketRefPrice
+    );
+    SetWindowTextW(g_dealsDlg.lblSummary, summary.c_str());
+    InvalidateRect(dlg, nullptr, FALSE);
+}
 
 static void refreshDealsDialogResults(HWND dlg) {
     int cIdx = static_cast<int>(SendMessageW(g_dealsDlg.comboCountry, CB_GETCURSEL, 0, 0));
@@ -1967,8 +2025,7 @@ static void refreshDealsDialogResults(HWND dlg) {
 
     wchar_t qBuf[256] = {};
     GetWindowTextW(g_dealsDlg.editQuery, qBuf, 255);
-    std::string query = GameCheck::trim(GameCheck::wideToUtf8(qBuf));
-    if (query.empty()) query = "NVIDIA GeForce RTX 4070 Super 12GB";
+    std::string query = GameCheck::normalizeComponentSearchQuery(GameCheck::wideToUtf8(qBuf));
 
     if (GameCheck::isFirewallAuthorized()) {
         SetWindowTextW(g_dealsDlg.lblFirewall, L"Firewall: Authorized (HTTPS 443)");
@@ -1978,52 +2035,45 @@ static void refreshDealsDialogResults(HWND dlg) {
 
     if (!GameCheck::isFirewallAuthorized()) {
         ListView_DeleteAllItems(g_dealsDlg.listDeals);
-        SetWindowTextW(g_dealsDlg.lblSummary, L"Click 'Search Verified Deals' to authorize HTTPS store lookups and scan verified sellers.");
+        SetWindowTextW(g_dealsDlg.lblSummary, tr(
+            L"Click 'Search Verified Deals' to authorize HTTPS lookups & check live availability.",
+            L"Haz clic en 'Buscar Precios Verificados' para autorizar HTTPS y verificar stock."
+        ));
         return;
     }
 
     g_dealsDlg.lastResult = GameCheck::searchComponentDeals(query, g_app.activeCountry, false);
-    const auto& res = g_dealsDlg.lastResult;
+    uint64_t seq = ++g_dealsDlg.verifySeq;
+    populateDealsListView(dlg, true);
 
-    ListView_DeleteAllItems(g_dealsDlg.listDeals);
-    for (size_t i = 0; i < res.deals.size(); ++i) {
-        const auto& d = res.deals[i];
-        std::wstring wStore = GameCheck::utf8ToWide(d.storeName);
-        std::wstringstream ts;
-        ts << std::fixed << std::setprecision(1) << d.trustScore << L"/10 (" << d.positiveRatingPct << L"%+)";
-        std::wstring wTrust = ts.str();
-        std::wstring wPrice = GameCheck::utf8ToWide(d.formattedPrice);
-        std::wstring wBadge = GameCheck::utf8ToWide(d.badge.empty() ? (d.isOfficialStore ? "Official Store" : "Verified Seller") : d.badge);
-
-        LVITEMW lvi = {};
-        lvi.mask = LVIF_TEXT;
-        lvi.iItem = static_cast<int>(i);
-        lvi.pszText = const_cast<LPWSTR>(wStore.c_str());
-        ListView_InsertItem(g_dealsDlg.listDeals, &lvi);
-
-        ListView_SetItemText(g_dealsDlg.listDeals, static_cast<int>(i), 1, const_cast<LPWSTR>(wTrust.c_str()));
-        ListView_SetItemText(g_dealsDlg.listDeals, static_cast<int>(i), 2, const_cast<LPWSTR>(wPrice.c_str()));
-        ListView_SetItemText(g_dealsDlg.listDeals, static_cast<int>(i), 3, const_cast<LPWSTR>(wBadge.c_str()));
-    }
-
-    if (!res.deals.empty()) {
-        ListView_SetItemState(g_dealsDlg.listDeals, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-    }
-
-    std::wstring summary = GameCheck::utf8ToWide(
-        std::to_string(res.verifiedCount) + " Verified Stores \xE2\x80\xA2 " +
-        std::to_string(res.blockedBadReputationCount) + " Bad Reputation & Scam Sellers Blocked \xE2\x80\xA2 Market Ref: " +
-        res.formattedMarketRefPrice
-    );
-    SetWindowTextW(g_dealsDlg.lblSummary, summary.c_str());
-    InvalidateRect(dlg, nullptr, FALSE);
+    auto* asyncCopy = new GameCheck::DealSearchResult(g_dealsDlg.lastResult);
+    std::thread([dlg, seq, asyncCopy]() {
+        GameCheck::verifyDealsAvailability(*asyncCopy);
+        if (IsWindow(dlg)) {
+            PostMessageW(dlg, DealsDlgState::WM_APP_DEALS_VERIFIED, static_cast<WPARAM>(seq),
+                         reinterpret_cast<LPARAM>(asyncCopy));
+        } else {
+            delete asyncCopy;
+        }
+    }).detach();
 }
 
 static void openSelectedDealInBrowser(HWND dlg) {
     if (g_dealsDlg.lastResult.deals.empty()) return;
     int sel = ListView_GetNextItem(g_dealsDlg.listDeals, -1, LVNI_SELECTED);
     if (sel < 0 || sel >= static_cast<int>(g_dealsDlg.lastResult.deals.size())) sel = 0;
-    std::wstring wUrl = GameCheck::utf8ToWide(g_dealsDlg.lastResult.deals[sel].url);
+    const auto& deal = g_dealsDlg.lastResult.deals[sel];
+    if (deal.availabilityChecked && !deal.isAvailable) {
+        int ans = MessageBoxW(
+            dlg,
+            tr(L"This store reported no matching products or out of stock for your query.\nOpen it in your browser anyway?",
+               L"Esta tienda report\x00F3 sin resultados o sin stock para esta b\x00FAsqueda.\n\x00BFAbrir en el navegador de todas formas?"),
+            L"GameCheck",
+            MB_YESNO | MB_ICONWARNING
+        );
+        if (ans != IDYES) return;
+    }
+    std::wstring wUrl = GameCheck::utf8ToWide(deal.url);
     ShellExecuteW(dlg, L"open", wUrl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
@@ -2054,9 +2104,10 @@ static LRESULT CALLBACK DealsDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             SendMessageW(g_dealsDlg.editQuery, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.hFontUi), TRUE);
 
             const auto& game = g_app.allGames.empty() ? GameCheck::getCatalogGames().front() : g_app.allGames[g_app.selectedGameIdx];
-            std::string defaultHw = g_app.currentAnalysis.canRunRecommended
-                ? "NVIDIA GeForce RTX 4070 Super 12GB"
-                : (game.recGpu.empty() ? "AMD Radeon RX 7800 XT 16GB" : game.recGpu);
+            std::string rawDefaultHw = g_app.currentAnalysis.canRunRecommended
+                ? "RTX 4070 Super"
+                : (game.recGpu.empty() ? "RX 7800 XT" : game.recGpu);
+            std::string defaultHw = GameCheck::normalizeComponentSearchQuery(rawDefaultHw);
             SetWindowTextW(g_dealsDlg.editQuery, GameCheck::utf8ToWide(defaultHw).c_str());
 
             // Quick-Pick buttons
@@ -2080,14 +2131,19 @@ static LRESULT CALLBACK DealsDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                                                    GetModuleHandleW(nullptr), nullptr);
             SendMessageW(g_dealsDlg.listDeals, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.hFontUi), TRUE);
             ListView_SetExtendedListViewStyle(g_dealsDlg.listDeals, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
-            ListView_SetBkColor(g_dealsDlg.listDeals, RGB(8, 8, 14));
-            ListView_SetTextBkColor(g_dealsDlg.listDeals, RGB(8, 8, 14));
+            ListView_SetBkColor(g_dealsDlg.listDeals, RGB(18, 23, 31));
+            ListView_SetTextBkColor(g_dealsDlg.listDeals, RGB(18, 23, 31));
             ListView_SetTextColor(g_dealsDlg.listDeals, RGB(242, 245, 250));
-            if (g_app.hListImg) ListView_SetImageList(g_dealsDlg.listDeals, g_app.hListImg, LVSIL_SMALL);
 
-            const wchar_t* cols[] = { L"Store", L"Trust Score", L"Est. Price", L"Verification Badge" };
-            int colW[] = { 190, 140, 130, 195 };
-            for (int c = 0; c < 4; ++c) {
+            const wchar_t* cols[] = {
+                tr(L"Store", L"Tienda"),
+                tr(L"Trust Score", L"Reputaci\x00F3n"),
+                tr(L"Est. Price", L"Precio Est."),
+                tr(L"Availability", L"Disponibilidad"),
+                tr(L"Verification", L"Verificaci\x00F3n")
+            };
+            int colW[] = { 172, 112, 108, 108, 152 };
+            for (int c = 0; c < 5; ++c) {
                 LVCOLUMNW lvc = {};
                 lvc.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
                 lvc.cx = colW[c];
@@ -2132,11 +2188,11 @@ static LRESULT CALLBACK DealsDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
             if (id >= IDC_DLG_PICK_1 && id <= IDC_DLG_PICK_5) {
                 const wchar_t* fullNames[] = {
-                    L"AMD Radeon RX 7600 8GB",
-                    L"AMD Radeon RX 7800 XT 16GB",
-                    L"NVIDIA GeForce RTX 4060 8GB",
-                    L"NVIDIA GeForce RTX 4070 Super 12GB",
-                    L"AMD Ryzen 7 5700X3D"
+                    L"RX 7600",
+                    L"RX 7800 XT",
+                    L"RTX 4060",
+                    L"RTX 4070 Super",
+                    L"Ryzen 7 5700X3D"
                 };
                 SetWindowTextW(g_dealsDlg.editQuery, fullNames[id - IDC_DLG_PICK_1]);
                 if (GameCheck::isFirewallAuthorized()) refreshDealsDialogResults(hwnd);
@@ -2165,6 +2221,17 @@ static LRESULT CALLBACK DealsDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 return 0;
             }
             break;
+        }
+        case DealsDlgState::WM_APP_DEALS_VERIFIED: {
+            auto* verifiedRes = reinterpret_cast<GameCheck::DealSearchResult*>(lParam);
+            if (verifiedRes) {
+                if (static_cast<uint64_t>(wParam) == g_dealsDlg.verifySeq) {
+                    g_dealsDlg.lastResult = *verifiedRes;
+                    populateDealsListView(hwnd, false);
+                }
+                delete verifiedRes;
+            }
+            return 0;
         }
         case WM_CLOSE:
             DestroyWindow(hwnd);
@@ -2369,6 +2436,17 @@ static LRESULT CALLBACK SimDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             }
             break;
         }
+        case DealsDlgState::WM_APP_DEALS_VERIFIED: {
+            auto* verifiedRes = reinterpret_cast<GameCheck::DealSearchResult*>(lParam);
+            if (verifiedRes) {
+                if (static_cast<uint64_t>(wParam) == g_dealsDlg.verifySeq) {
+                    g_dealsDlg.lastResult = *verifiedRes;
+                    populateDealsListView(hwnd, false);
+                }
+                delete verifiedRes;
+            }
+            return 0;
+        }
         case WM_CLOSE:
             DestroyWindow(hwnd);
             return 0;
@@ -2514,6 +2592,17 @@ static LRESULT CALLBACK SteamDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 return 0;
             }
             break;
+        }
+        case DealsDlgState::WM_APP_DEALS_VERIFIED: {
+            auto* verifiedRes = reinterpret_cast<GameCheck::DealSearchResult*>(lParam);
+            if (verifiedRes) {
+                if (static_cast<uint64_t>(wParam) == g_dealsDlg.verifySeq) {
+                    g_dealsDlg.lastResult = *verifiedRes;
+                    populateDealsListView(hwnd, false);
+                }
+                delete verifiedRes;
+            }
+            return 0;
         }
         case WM_CLOSE:
             DestroyWindow(hwnd);
