@@ -1,0 +1,12 @@
+# GameCheck Code Owners
+# Only the repository owner/admin may approve changes to CI/CD pipelines,
+# security/antivirus/performance scanners, installer scripts, and security policies.
+
+/.github/                         @FranciscoFlorio25
+/scripts/security-policy-scan.js  @FranciscoFlorio25
+/scripts/perf-gate.js             @FranciscoFlorio25
+/scripts/build-installer.js       @FranciscoFlorio25
+/scripts/calver.js                @FranciscoFlorio25
+/scripts/create-patch.js          @FranciscoFlorio25
+/SECURITY.md                      @FranciscoFlorio25
+/LICENSE                          @FranciscoFlorio25

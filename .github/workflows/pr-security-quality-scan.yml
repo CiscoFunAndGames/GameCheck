@@ -18,6 +18,33 @@ permissions:
   security-events: write
 
 jobs:
+  protect-ci-and-scans:
+    name: Enforce Admin-Only Pipeline & Scanner Protection
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Block Non-Admin Edits to Pipelines & Security Scanners
+        run: |
+          BASE_REF="${{ github.base_ref }}"
+          ACTOR="${{ github.actor }}"
+          OWNER="${{ github.repository_owner }}"
+          git fetch origin "${BASE_REF}" --depth=1
+          CHANGED=$(git diff --name-only "origin/${BASE_REF}...HEAD")
+          PROTECTED=$(echo "${CHANGED}" | grep -E '^(\.github/|scripts/security-policy-scan\.js|scripts/perf-gate\.js|scripts/build-installer\.js|scripts/calver\.js|scripts/create-patch\.js)' || true)
+          if [ -n "${PROTECTED}" ] && [ "${ACTOR}" != "${OWNER}" ]; then
+            echo "::error::Unauthorized modification to protected CI/CD pipeline or security scanner files by '${ACTOR}'."
+            echo "Protected files touched:"
+            echo "${PROTECTED}"
+            echo "Only the repository admin (${OWNER}) is permitted to modify pipelines and security scans."
+            exit 1
+          fi
+          echo "[PASS] Pipeline & scanner ownership check passed (actor: ${ACTOR})."
+
   security-policy-and-audit:
     name: Anti-Keylogger, Spyware, Secret & Dependency Audit
     runs-on: ubuntu-latest
